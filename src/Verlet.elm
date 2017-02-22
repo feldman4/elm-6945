@@ -1,33 +1,63 @@
 module Verlet exposing (..)
 
-import Html exposing (text)
+import Html exposing (text, div)
 import Plot exposing (..)
+import Plot.Line as Line
+import Svg
 
 
 main : Html.Html msg
 main =
-    doExample |> List.reverse |> toString |> text
+    let
+        raw =
+            doExample |> List.reverse |> toString |> text
+
+        data =
+            doExample |> List.map (\a -> ( a.t, a.x ))
+
+        truth =
+            doExample |> List.map (\a -> ( a.t, sin a.t ))
+    in
+        div []
+            [ viewPlot data truth
+              -- , div [] [ raw ]
+            ]
 
 
+doExample : History
+doExample =
+    let
+        h =
+            0.3
 
--- data1 : List ( Float, Float )
--- data1 =
---     [ ( 0, 0 ), ( 1, 1 ), ( 2, 2 ), ( 3, 3 ), ( 4, 5 ), ( 5, 8 ), ( 6, 13 ), ( 7, 21 ), ( 8, 34 ), ( 9, 55 ), ( 10, 87 ) ]
---
---
---
--- viewPlot =
---     plot
---         [ size ( 600, 300 )
---         , margin ( 100, 100, 40, 100 )
---         , id "PlotHint"
---         , style [ ( "position", "relative" ) ]
---         ]
---         [ line
---             [ Line.stroke "#556270"
---             , Line.strokeWidth 1
---             ]
---              data1
+        tFinal =
+            100
+
+        g =
+            sin
+    in
+        evolve (tFinal / h - 2 |> round) h (initKnown sin h)
+
+
+viewPlot : List Point -> List Point -> Svg.Svg a
+viewPlot data data2 =
+    plot
+        [ size ( 600, 300 )
+        , margin ( 100, 100, 40, 100 )
+        , id "PlotHint"
+        , style [ ( "position", "relative" ) ]
+        ]
+        [ line
+            [ Line.stroke "black"
+            , Line.strokeWidth 1
+            ]
+            data
+        , line
+            [ Line.stroke "pink"
+            , Line.strokeWidth 1
+            ]
+            data2
+        ]
 
 
 type alias Value =
@@ -56,21 +86,6 @@ type alias StepSize =
 
 type alias Integrator =
     History -> Value
-
-
-doExample : History
-doExample =
-    let
-        h =
-            0.01
-
-        tFinal =
-            1
-
-        g =
-            sin
-    in
-        evolve (tFinal / h - 2 |> round) h (initKnown sin h)
 
 
 evolve : Int -> StepSize -> History -> History
@@ -117,7 +132,7 @@ stormer2 f h history =
             getAt 2 history
 
         d2 =
-            (h ^ 2 / 12) * (13 * (f t0 x0) - 2 * (f t1 x1) + (f t2 x2))
+            (h * h / 12) * (13 * (f t0 x0) - 2 * (f t1 x1) + (f t2 x2))
     in
         d2 + 2 * x0 - x1
 

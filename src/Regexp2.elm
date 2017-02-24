@@ -9,7 +9,8 @@ import Regex
 
 testText : List String
 testText =
-    """abc
+    """
+abc
 aac
 acc
 zzzaxcqqq
@@ -20,13 +21,12 @@ foo bar baz quux
 anything containing them
 catdogcat
 catcatdogdog
-dogdogcatdogdog
-catcatcatdogdogdog
 acatdogdogcats
-ifacatdogdogs
-acatdogdogsme
 [][[^]]]
-^][].[][^""" |> String.split "\n"
+^][].[][^
+???
+abc{
+""" |> String.split "\n" |> List.filter ((/=) "")
 
 
 tests : List Expr
@@ -63,6 +63,11 @@ type Expr
     | Dot
     | Eol
     | Bol
+
+
+type RE
+    = BRE
+    | ERE
 
 
 type alias RepeatInfo =
@@ -111,35 +116,45 @@ star expr =
     expr |> interval 0 Nothing
 
 
-dummy : number
-dummy =
-    3
-
-
 
 -- PRINTING
 
 
-charNeedsQuoting : Char -> Bool
-charNeedsQuoting char =
+{-| For quoting outside brackets.
+-}
+charNeedsQuoting : RE -> Char -> Bool
+charNeedsQuoting re char =
     let
+        special =
+            case re of
+                BRE ->
+                    ".[\\" ++ ""
+
+                ERE ->
+                    "?\\.^$[]*{}-"
+
         isSpecial =
-            (flip String.contains) "?\\.^$[]*{}-"
+            (flip String.contains) special
     in
         char |> String.fromChar |> isSpecial
 
 
-quote : Char -> String
-quote char =
-    if charNeedsQuoting char then
+quote : RE -> Char -> String
+quote re char =
+    if charNeedsQuoting re char then
         "\\" ++ (String.fromChar char)
     else
         String.fromChar char
 
 
-group : String -> String
-group string =
-    "(" ++ string ++ ")"
+group : RE -> String -> String
+group re string =
+    case re of
+        BRE ->
+            "\\(" ++ string ++ "\\)"
+
+        ERE ->
+            "(" ++ string ++ ")"
 
 
 needsGrouping : Expr -> Bool
@@ -158,17 +173,17 @@ needsGrouping expr =
             False
 
 
-bracket : String -> String -> String
-bracket prefix string =
+bracket : RE -> String -> String -> String
+bracket re prefix string =
     let
         contents =
-            String.toList string |> List.map quote |> String.concat
+            String.toList string |> List.map (quote re) |> String.concat
     in
         "[" ++ prefix ++ contents ++ "]"
 
 
-repeatToInterval : RepeatInfo -> String
-repeatToInterval { expr, start, end } =
+repeatToInterval : RE -> RepeatInfo -> String
+repeatToInterval re { expr, start, end } =
     let
         endString =
             case end of
@@ -177,61 +192,137 @@ repeatToInterval { expr, start, end } =
 
                 Nothing ->
                     ""
+
+        ( leftBrace, rightBrace ) =
+            case re of
+                BRE ->
+                    ( "\\{", "\\}" )
+
+                ERE ->
+                    ( "{", "}" )
     in
-        [ "{", (toString start), ",", endString, "}" ] |> String.concat
+        [ leftBrace, (toString start), ",", endString, rightBrace ] |> String.concat
 
 
-print : Expr -> String
-print expr =
+{-| Special repeat characters are different in ERE and BRE.
+-}
+specialRepeat : RE -> RepeatInfo -> String
+specialRepeat re repeatInfo =
+    let
+        ( start, end ) =
+            ( repeatInfo.start, repeatInfo.end )
+
+        finite start_ end_ =
+            if start_ == end_ then
+                "{" ++ (toString start_) ++ "}"
+            else
+                repeatToInterval re repeatInfo
+    in
+        case ( start, end ) of
+            ( 0, Nothing ) ->
+                "*"
+
+            ( 1, Nothing ) ->
+                "+"
+
+            ( 0, Just 1 ) ->
+                case re of
+                    BRE ->
+                        finite 0 1
+
+                    ERE ->
+                        "?"
+
+            ( start, Just end ) ->
+                finite start end
+
+            _ ->
+                repeatToInterval re repeatInfo
+
+
+unescapeStar : String -> String
+unescapeStar expr =
+    case expr |> String.toList of
+        '^' :: '\\' :: '*' :: rest ->
+            "^*" ++ (rest |> String.fromList)
+
+        '\\' :: '*' :: rest ->
+            "*" ++ (rest |> String.fromList)
+
+        _ ->
+            expr
+
+
+{-| Print the expression tree, then apply any final processing.
+-}
+printer : RE -> Expr -> String
+printer re expr =
+    let
+        result =
+            print re expr
+
+        finalFilter =
+            case re of
+                BRE ->
+                    unescapeStar
+
+                ERE ->
+                    identity
+    in
+        result |> finalFilter
+
+
+print : RE -> Expr -> String
+print re expr =
     case expr of
         Atom char ->
-            quote char
+            quote re char
 
         From string ->
-            bracket "" string
+            bracket re "" string
 
         NotFrom string ->
-            bracket "^" string
+            bracket re "^" string
 
         Seq seq ->
-            seq |> List.map print |> String.concat
+            seq |> List.map (print re) |> String.concat
 
         Alt seq ->
-            seq |> List.map print |> String.join "|"
+            let
+                pipe =
+                    case re of
+                        BRE ->
+                            "\\|"
+
+                        ERE ->
+                            "|"
+            in
+                seq |> List.map (print re) |> String.join pipe
 
         Repeat repeatInfo ->
             let
                 repeatString =
-                    case ( repeatInfo.start, repeatInfo.end ) of
-                        ( 0, Nothing ) ->
-                            "*"
-
-                        ( 1, Nothing ) ->
-                            "+"
-
-                        ( start, Just end ) ->
-                            if start == end then
-                                "{" ++ (toString start) ++ "}"
-                            else
-                                repeatToInterval repeatInfo
-
-                        _ ->
-                            repeatToInterval repeatInfo
+                    specialRepeat re repeatInfo
 
                 exprString =
-                    print repeatInfo.expr
+                    print re repeatInfo.expr
                         |> if needsGrouping repeatInfo.expr then
-                            group
+                            (group re)
                            else
                             identity
             in
                 exprString ++ repeatString
 
         BackRef n ->
-            "\\" ++ toString n
+            case re of
+                BRE ->
+                    "\\" ++ toString n
+
+                ERE ->
+                    "ILLEGAL BACKREFERENCE IN ERE"
 
         Group expr ->
-            print expr |> group
+            print re expr |> group re
 
         Dot ->
             "."
@@ -250,9 +341,9 @@ print expr =
 main : Html.Html msg
 main =
     let
-        testRegex r =
+        testRegex re r =
             testText
-                |> List.filter (Regex.contains (Regex.regex (print r)))
+                |> List.filter (Regex.contains (Regex.regex (print re r)))
 
         viewList xs =
             xs |> List.map (\x -> li [] [ x |> text ])
@@ -260,12 +351,14 @@ main =
         viewRegex r =
             let
                 a =
-                    Debug.log "regex" (r |> print)
+                    Debug.log "regex (BRE)" (r |> print BRE)
+                        |> (\_ -> Debug.log "regex (ERE)" (r |> print ERE))
                         |> (\_ -> Debug.log "internal representation" r)
             in
                 div []
-                    [ div [] [ "regex: " ++ (r |> print) |> text ]
-                    , div [] [ "matches: " |> text, div [] (r |> testRegex |> viewList) ]
+                    [ div [] [ "regex (BRE): " ++ (r |> print BRE) |> text ]
+                    , div [] [ "regex (ERE): " ++ (r |> print ERE) |> text ]
+                    , div [] [ "matches (ERE): " |> text, div [] (r |> testRegex ERE |> viewList) ]
                     , br [] []
                     ]
 

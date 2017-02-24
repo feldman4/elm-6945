@@ -117,6 +117,9 @@ stepper h integrator history =
 - integration scheme
 - step size
 - forcing F, i.e., the right side of the differential equation
+
+Why do we pass makeIntegrator, instead of just making the integrator before
+we call this?
 -}
 evolver : Forcing -> StepSize -> (Forcing -> StepSize -> Integrator) -> (History -> Int -> History)
 evolver f h makeIntegrator =

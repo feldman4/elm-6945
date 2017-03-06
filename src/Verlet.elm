@@ -49,7 +49,7 @@ doExample2 =
         history =
             makeInitialHistory t h x0 x1 x2
     in
-        evolver sinForcing h stormer2 history 1 |> getAt 0 |> Tuple.second
+        evolver sinForcing h stormer2 history 3 |> getAt 0 |> Tuple.second
 
 
 sinForcing : Forcing

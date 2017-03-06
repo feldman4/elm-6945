@@ -1,66 +1,22 @@
 module WFC exposing (..)
 
-import Html exposing (text)
+import WFC.View exposing (..)
+import WFC.Types exposing (..)
+import WFC.Utilities exposing (..)
+import WFC.Tile exposing (..)
+import Html exposing (text, li, div, tr, td, br)
 import Array exposing (Array)
 import Dict exposing (Dict)
+import List.Extra exposing (lift2, lift4, (!!))
+import Element
+import Random.Pcg exposing (Seed)
 
 
-type alias Wave =
-    Array Point
+-- CORE
 
 
-type alias Point =
-    Array Bool
-
-
-type alias Propagator =
-    IndexS -> IndexS -> Edge -> Bool
-
-
-{-| type variable should be `comparable`
--}
-type alias Selector a =
-    Point -> Maybe a
-
-
-type alias Collapser =
-    Point -> Maybe Point
-
-
-type alias IndexS =
-    Int
-
-
-type alias IndexW =
-    Int
-
-
-type alias Edge =
-    ( IndexW, IndexW )
-
-
-type alias Edges =
-    Dict IndexW (List IndexW)
-
-
-type alias Entropy =
-    Float
-
-
-type alias Color =
-    Int
-
-
-type alias T3 a =
-    ( a, a, a )
-
-
-type alias State =
-    T3 (T3 Color)
-
-
-propagate : Wave -> IndexW -> Edges -> Propagator -> ( Wave, List IndexW )
-propagate wave iW1 edges propagator =
+propagate : Edges -> Compatibility -> Propagator
+propagate edges propagator wave iW1 =
     let
         -- current states
         states : List IndexS
@@ -69,10 +25,14 @@ propagate wave iW1 edges propagator =
                 |> Maybe.withDefault Array.empty
                 |> maskToIndex
 
-        -- test if a single neighboring state agrees
+        -- test if a single neighboring state agrees with at least one
         agree : IndexW -> IndexS -> Bool
         agree iW2 iS2 =
-            states |> List.all (\iS1 -> propagator iS1 iS2 ( iW1, iW2 ))
+            let
+                y =
+                    states |> List.any (\iS1 -> propagator iS1 iS2 ( iW1, iW2 ))
+            in
+                states |> List.any (\iS1 -> propagator iS1 iS2 ( iW1, iW2 ))
 
         -- map over neighboring states, only testing if true
         update : IndexW -> Point -> Point
@@ -86,6 +46,8 @@ propagate wave iW1 edges propagator =
                             s
                     )
 
+        -- returns Nothing if none of the coefficients in Point change
+        solveNeighbor : IndexW -> Maybe Point
         solveNeighbor iW2 =
             let
                 oldPoint =
@@ -119,19 +81,31 @@ propagate wave iW1 edges propagator =
                 Nothing ->
                     ( waveSoFar, toDo )
     in
-        neighbors |> List.foldl foldIt ( wave, [] )
+        neighbors
+            |> List.foldl foldIt ( wave, [] )
+            |> (\( w, xs ) -> ( w, List.Extra.unique xs ))
 
 
 {-| Observe returns Nothing if no Point was chosen.
 -}
-observe : Wave -> Selector comparable -> Collapser -> Maybe Wave
-observe wave selector collapser =
+observe : Selector comparable -> Collapser -> Wave -> Maybe ( Wave, IndexW )
+observe selector collapser wave =
     let
+        applySelector i a =
+            case selector a of
+                Just x ->
+                    Just ( x, i )
+
+                Nothing ->
+                    Nothing
+
         index =
             wave
+                |> Array.indexedMap applySelector
                 |> Array.toList
-                |> List.filterMap selector
-                |> argminList
+                |> List.filterMap identity
+                |> List.minimum
+                |> Maybe.map Tuple.second
 
         newPoint =
             index
@@ -140,124 +114,163 @@ observe wave selector collapser =
     in
         case ( index, newPoint ) of
             ( Just i, Just val ) ->
-                Just (Array.set i val wave)
+                Just ( Array.set i val wave, i )
 
             _ ->
                 Nothing
 
 
-findEntropy : Point -> Array State -> Entropy
-findEntropy point states =
-    point
-        |> maskToIndex
-        |> List.filterMap ((flip Array.get) states)
-        |> counter
-        |> Dict.values
-        |> shannon2
+
+-- WRAPPERS
 
 
-getTiles : Array State -> Point -> List State
-getTiles states point =
-    point
-        |> maskToIndex
-        |> List.filterMap ((flip Array.get) states)
+observeThenPropagate : Selector comparable -> Collapser -> Propagator -> Wave -> Wave
+observeThenPropagate selector collapser prop wave =
+    observe selector collapser wave
+        |> Maybe.map (\( a, b ) -> ( a, [ b ] ))
+        |> Maybe.map (propagateFold prop)
+        |> Maybe.withDefault wave
 
 
-
--- UTILITIES
-
-
-maskToIndex : Array Bool -> List Int
-maskToIndex boolArray =
+propagateFold : Propagator -> ( Wave, List IndexW ) -> Wave
+propagateFold prop ( wave, targets ) =
     let
-        f ( i, b ) =
-            if b then
-                Just i
-            else
-                Nothing
+        g target ( wave2, soFar ) =
+            prop wave2 target
+                |> (\( a, b ) -> ( a, b ++ soFar ))
+
+        ( finalWave, finalTargets ) =
+            List.foldl g ( wave, [] ) targets
     in
-        boolArray |> Array.toIndexedList |> List.filterMap f
+        if List.isEmpty finalTargets then
+            finalWave
+        else
+            propagateFold prop ( finalWave, finalTargets )
 
 
-shannon2 : List Int -> Float
-shannon2 counts =
+{-| Return the new Wave and a history of intermediates.
+-}
+propagateWithHistory : Propagator -> ( Wave, List IndexW ) -> ( Wave, List IndexW, List ( Wave, IndexW ) )
+propagateWithHistory indexWListWaveIndexWWave ( wave, indexWList ) =
     let
-        plogp x =
-            -x * (logBase 2 (x))
+        newWave =
+            Array.empty
 
-        n =
-            List.sum counts |> toFloat
+        targets =
+            []
+
+        visited =
+            []
     in
-        counts
-            |> List.map toFloat
-            |> List.map plogp
-            |> List.sum
-            |> (\x -> x / n + logBase 2 n)
+        ( newWave, targets, visited )
 
 
-foldF : comparable -> Dict comparable Int -> Dict comparable Int
-foldF x dict =
+
+-- HELPFUL
+
+
+{-| Returns Nothing if there are no True coefficients in the Point.
+-}
+simpleCollapser : Collapser
+simpleCollapser point =
     let
-        updateF mv =
-            case mv of
-                Nothing ->
-                    Just 1
-
-                Just v ->
-                    Just (v + 1)
+        singleTrue i =
+            Array.repeat (Array.length point) False
+                |> Array.set i True
     in
-        Dict.update x updateF dict
+        Array.indexedMap (,) point
+            |> Array.filter Tuple.second
+            |> Array.get 0
+            |> Maybe.map Tuple.first
+            |> Maybe.map singleTrue
 
 
-counter : List comparable -> Dict comparable Int
-counter xs =
-    List.foldl foldF Dict.empty xs
+{-| Bases the selection off of the index with the most counts, among those
+considered.
+-}
+collapser : List Int -> Collapser
+collapser counts =
+    (\x -> Nothing)
 
 
-
--- argmin_ : comparable -> Array.Array comparable -> ( Int, Int, comparable )
-
-
-argmin_ : a -> b -> ((comparable -> ( number, number, comparable ) -> ( number1, number, comparable )) -> ( number2, number3, a ) -> b -> c) -> c
-argmin_ maxValue arr foldl =
-    let
-        go newValue ( lastIndex, minIndex, minValue ) =
-            if (newValue < minValue) then
-                ( lastIndex + 1, lastIndex + 1, newValue )
-            else
-                ( lastIndex + 1, minIndex, minValue )
-    in
-        foldl go ( -1, 0, maxValue ) arr
-
-
-argminArray : Array.Array comparable -> Maybe Int
-argminArray arr =
-    let
-        third ( _, a, _ ) =
-            a
-    in
-        case Array.get 0 arr of
-            Just val ->
-                Just (argmin_ val arr Array.foldl |> third)
-
-            Nothing ->
-                Nothing
-
-
-argminList : List comparable -> Maybe Int
-argminList xs =
-    let
-        third ( _, a, _ ) =
-            a
-    in
-        case xs of
-            x :: rest ->
-                Just (argmin_ x xs List.foldl |> third)
-
-            [] ->
-                Nothing
+{-| Selects a valid index, weighted by counts.
+-}
+collapserRandom : List Int -> Seed -> Collapser
+collapserRandom counts seed =
+    (\x -> Nothing)
 
 
 main : Html.Html msg
 main =
-    text ""
+    let
+        n =
+            7
+
+        edges =
+            gridEdges n n
+
+        states =
+            checkerboardABCDEF
+
+        statesArray =
+            states |> Array.fromList
+
+        initialWave =
+            Array.repeat (List.length states) True
+                |> Array.repeat (n * n)
+
+        changedWave =
+            initialWave
+                |> Array.set 0 ([ False, False, False, False, True, True ] |> Array.fromList)
+
+        propagator : Compatibility
+        propagator =
+            makeTileCompatibility states (edgeToOffset n)
+
+        selector point =
+            pointToStates statesArray point
+                |> tileEntropy
+                |> (\x ->
+                        if x < 3 then
+                            Nothing
+                        else
+                            Just x
+                   )
+
+        ( nextWave, targets ) =
+            propagate edges propagator initialWave 0
+
+        finalWave =
+            propagateFold (propagate edges propagator) ( changedWave, [ 0 ] )
+
+        observationDeck =
+            observeThenPropagate
+                selector
+                simpleCollapser
+                (propagate edges propagator)
+
+        observedWave =
+            initialWave |> observationDeck
+
+        -- x =
+        --     Debug.log "??" (observedWave |> observe selector simpleCollapser)
+        --
+        -- y =
+        --     Debug.log "???" (observedWave |> Array.map (pointToStates statesArray) |> Array.map tileEntropy)
+        --
+        -- z =
+        --     Debug.log "????" (initialWave |> Array.get 0 |> Maybe.map (pointToStates statesArray) |> Maybe.map tileEntropy)
+        --|> observationDeck |> observationDeck
+        waveX =
+            changedWave |> repeatApply observationDeck 13
+    in
+        div []
+            [ drawWave n n 40 states waveX |> Element.toHtml
+            , finalWave |> viewWave n n
+              -- , br [] []
+              -- , testViewOverlaps n (propagator 4 5)
+            , br [] []
+            , waveX |> viewWave n n
+            , br [] []
+            , targets |> toString |> text
+            ]

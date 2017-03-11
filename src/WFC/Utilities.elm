@@ -6,7 +6,7 @@ import Dict exposing (Dict)
 import List.Extra exposing (lift2)
 
 
-pointToStates : Array a -> Array Bool -> List a
+pointToStates : Array a -> Point -> List a
 pointToStates states point =
     point
         |> maskToIndex

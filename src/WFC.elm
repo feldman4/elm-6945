@@ -8,7 +8,6 @@ import Html exposing (text, li, div, tr, td, br)
 import Array exposing (Array)
 import Dict exposing (Dict)
 import List.Extra exposing (lift2, lift4, (!!))
-import Element
 import Random.Pcg exposing (Seed)
 
 
@@ -204,13 +203,16 @@ main : Html.Html msg
 main =
     let
         n =
-            7
+            5
 
         edges =
             gridEdges n n
 
         states =
-            checkerboardABCDEF
+            knot
+
+        k =
+            List.length states
 
         statesArray =
             states |> Array.fromList
@@ -219,9 +221,12 @@ main =
             Array.repeat (List.length states) True
                 |> Array.repeat (n * n)
 
+        cornerPoint =
+            True :: (List.repeat (k - 1) False)
+
         changedWave =
             initialWave
-                |> Array.set 0 ([ False, False, False, False, True, True ] |> Array.fromList)
+                |> Array.set 0 (cornerPoint |> Array.fromList)
 
         propagator : Compatibility
         propagator =
@@ -237,40 +242,32 @@ main =
                             Just x
                    )
 
-        ( nextWave, targets ) =
-            propagate edges propagator initialWave 0
-
-        finalWave =
-            propagateFold (propagate edges propagator) ( changedWave, [ 0 ] )
-
         observationDeck =
             observeThenPropagate
                 selector
                 simpleCollapser
                 (propagate edges propagator)
 
-        observedWave =
-            initialWave |> observationDeck
-
-        -- x =
-        --     Debug.log "??" (observedWave |> observe selector simpleCollapser)
-        --
-        -- y =
-        --     Debug.log "???" (observedWave |> Array.map (pointToStates statesArray) |> Array.map tileEntropy)
-        --
-        -- z =
-        --     Debug.log "????" (initialWave |> Array.get 0 |> Maybe.map (pointToStates statesArray) |> Maybe.map tileEntropy)
-        --|> observationDeck |> observationDeck
-        waveX =
-            changedWave |> repeatApply observationDeck 13
+        showWave wave =
+            drawWaveDiv n n (drawPointDiv statesArray) wave |> waveContainer (n * 20) (n * 20)
     in
         div []
-            [ drawWave n n 40 states waveX |> Element.toHtml
-            , finalWave |> viewWave n n
-              -- , br [] []
-              -- , testViewOverlaps n (propagator 4 5)
-            , br [] []
-            , waveX |> viewWave n n
-            , br [] []
-            , targets |> toString |> text
+            [ initialWave |> showWave
+            , initialWave |> observationDeck |> showWave
+            , initialWave |> repeatApply observationDeck 2 |> showWave
+            , initialWave |> repeatApply observationDeck 10 |> showWave
             ]
+
+
+
+--
+-- , initialWave |> observationDeck |> showWave
+-- , initialWave |> repeatApply observationDeck 2 |> showWave
+-- , pointHtml
+-- , finalWave |> viewWave n n
+--   -- , br [] []
+--   -- , testViewOverlaps n (propagator 4 5)
+-- , br [] []
+-- , waveX |> viewWave n n
+-- , br [] []
+-- , targets |> toString |> text

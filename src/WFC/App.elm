@@ -11,6 +11,7 @@ import Array
 import Task exposing (Task)
 import Time exposing (Time, inSeconds)
 import AnimationFrame exposing (times)
+import List.Extra
 
 
 main : Program Never Model Action
@@ -63,7 +64,6 @@ type Action
     | MouseEnter IndexW
     | Collapse IndexS
     | Propagate IndexW
-    | PropagateSome (List IndexW)
     | ChangeTileSet TileSet
     | Select IndexW
     | AnimationFrame Float
@@ -91,7 +91,7 @@ update action model =
             { model | mouseTouch = val } ! []
 
         Collapse iS ->
-            collapseFromInventory model iS
+            (collapseFromInventory model iS) ! []
 
         Select iW ->
             case model.mouseOver of
@@ -111,25 +111,14 @@ update action model =
             in
                 { model | wave = wave } ! []
 
-        PropagateSome iWs ->
-            case iWs of
-                iW :: rest ->
-                    let
-                        ( newWave, newTargets ) =
-                            model.propagator model.wave iW
-
-                        task =
-                            Task.succeed (rest ++ newTargets)
-                    in
-                        { model | wave = newWave } ! [ Task.perform PropagateSome task ]
-
-                [] ->
-                    model ! []
-
         TaskDone ( wave, pending ) ->
             -- set-join pending queues?
             -- or does that just build up anyway
-            { model | wave = wave, pending = pending } ! []
+            let
+                pending2 =
+                    List.Extra.unique pending
+            in
+                { model | wave = wave, pending = pending2 } ! []
 
         ChangeTileSet tileset ->
             (init model.height model.width tileset) ! []
@@ -145,10 +134,10 @@ update action model =
                 stop m =
                     List.isEmpty m.pending
 
-                done =
-                    (\m -> TaskDone ( m.wave, m.pending ))
+                done m =
+                    TaskDone ( m.wave, m.pending )
             in
-                if not (stop model) then
+                if not (stop model) |> Debug.log "tested" then
                     model ! [ runUntil go stop done model (diff * 0.5) ]
                 else
                     model ! []
@@ -164,7 +153,7 @@ propagateOnce model =
                 ( newWave, newTargets ) =
                     model.propagator model.wave iW
             in
-                { model | wave = newWave, pending = rest ++ newTargets }
+                { model | wave = newWave, pending = newTargets ++ rest }
 
         [] ->
             model
@@ -178,7 +167,11 @@ runUntil : (a -> a) -> (a -> Bool) -> (a -> msg) -> a -> Time -> Cmd msg
 runUntil go stop done input period =
     let
         initialData t =
-            ( t + period, input )
+            let
+                z =
+                    Debug.log "launched"
+            in
+                ( t + period, input )
 
         doUpdate ( t, m ) =
             ( t, go m )
@@ -195,27 +188,31 @@ runUntil go stop done input period =
 
         loop : Task Never ( Time, a ) -> Task Never a
         loop task =
-            task
-                |> Task.map doUpdate
-                |> Task.map2 (,) Time.now
-                |> Task.andThen checkTime
+            let
+                z =
+                    Debug.log "looped" 0
+            in
+                task
+                    |> Task.map doUpdate
+                    |> Task.map2 (,) Time.now
+                    |> Task.andThen checkTime
     in
         Task.perform done (loop startLoop)
 
 
-collapseFromInventory : Model -> IndexS -> ( Model, Cmd Action )
+collapseFromInventory : Model -> IndexS -> Model
 collapseFromInventory model iS =
     case model.mouseOver of
         Just iW ->
             case collapseSpecific iW iS model.wave of
                 Just wave ->
-                    { model | wave = wave, pending = iW :: model.pending } ! []
+                    { model | wave = wave, pending = iW :: model.pending }
 
                 Nothing ->
-                    (model |> Debug.log "bad collapse") ! []
+                    (model |> Debug.log "bad collapse")
 
         Nothing ->
-            model ! []
+            model
 
 
 getTileSet : TileSet -> List State
@@ -339,7 +336,7 @@ viewLinks =
         sizes =
             [ ( " small ", ( 7, 7 ) )
             , ( " medium ", ( 14, 14 ) )
-            , ( " huge ", ( 28, 28 ) )
+            , ( " huge (slow) ", ( 28, 28 ) )
             ]
                 |> List.map sizeLink
 

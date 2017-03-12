@@ -20146,9 +20146,13 @@ var _user$project$WFC_View$drawStateDivNorm = F3(
 								_user$project$WFC_View$setColorAlpha,
 								0.5,
 								_elm_lang$core$Color$greyscale(
-									function (x) {
-										return _elm_lang$core$Basics$toFloat(x) / _elm_lang$core$Basics$toFloat(norm);
-									}(x))))),
+									A3(
+										_elm_lang$core$Basics$clamp,
+										0,
+										1,
+										function (x) {
+											return _elm_lang$core$Basics$toFloat(x) / _elm_lang$core$Basics$toFloat(norm);
+										}(x)))))),
 					_1: {ctor: '[]'}
 				};
 				return A2(
@@ -21010,26 +21014,17 @@ var _user$project$WFC_App$collapseFromInventory = F2(
 			var _p7 = _p5._0;
 			var _p6 = A3(_user$project$WFC$collapseSpecific, _p7, iS, model.wave);
 			if (_p6.ctor === 'Just') {
-				return A2(
-					_elm_lang$core$Platform_Cmd_ops['!'],
-					_elm_lang$core$Native_Utils.update(
-						model,
-						{
-							wave: _p6._0,
-							pending: {ctor: '::', _0: _p7, _1: model.pending}
-						}),
-					{ctor: '[]'});
+				return _elm_lang$core$Native_Utils.update(
+					model,
+					{
+						wave: _p6._0,
+						pending: {ctor: '::', _0: _p7, _1: model.pending}
+					});
 			} else {
-				return A2(
-					_elm_lang$core$Platform_Cmd_ops['!'],
-					A2(_elm_lang$core$Debug$log, 'bad collapse', model),
-					{ctor: '[]'});
+				return A2(_elm_lang$core$Debug$log, 'bad collapse', model);
 			}
 		} else {
-			return A2(
-				_elm_lang$core$Platform_Cmd_ops['!'],
-				model,
-				{ctor: '[]'});
+			return model;
 		}
 	});
 var _user$project$WFC_App$runUntil = F5(
@@ -21043,6 +21038,7 @@ var _user$project$WFC_App$runUntil = F5(
 			};
 		};
 		var loop = function (task) {
+			var z = A2(_elm_lang$core$Debug$log, 'looped', 0);
 			return A2(
 				_elm_lang$core$Task$andThen,
 				checkTime,
@@ -21064,6 +21060,7 @@ var _user$project$WFC_App$runUntil = F5(
 					{ctor: '_Tuple2', _0: _p13, _1: _p12}));
 		};
 		var initialData = function (t) {
+			var z = _elm_lang$core$Debug$log('launched');
 			return {ctor: '_Tuple2', _0: t + period, _1: input};
 		};
 		var startLoop = A2(_elm_lang$core$Task$map, initialData, _elm_lang$core$Time$now);
@@ -21082,7 +21079,7 @@ var _user$project$WFC_App$propagateOnce = function (model) {
 			model,
 			{
 				wave: newWave,
-				pending: A2(_elm_lang$core$Basics_ops['++'], _p14._1, newTargets)
+				pending: A2(_elm_lang$core$Basics_ops['++'], newTargets, _p14._1)
 			});
 	} else {
 		return model;
@@ -21130,26 +21127,6 @@ var _user$project$WFC_App$ChangeSize = function (a) {
 var _user$project$WFC_App$TaskDone = function (a) {
 	return {ctor: 'TaskDone', _0: a};
 };
-var _user$project$WFC_App$AnimationFrame = function (a) {
-	return {ctor: 'AnimationFrame', _0: a};
-};
-var _user$project$WFC_App$subscriptions = function (model) {
-	return _elm_lang$core$Platform_Sub$batch(
-		{
-			ctor: '::',
-			_0: _elm_lang$animation_frame$AnimationFrame$diffs(_user$project$WFC_App$AnimationFrame),
-			_1: {ctor: '[]'}
-		});
-};
-var _user$project$WFC_App$Select = function (a) {
-	return {ctor: 'Select', _0: a};
-};
-var _user$project$WFC_App$ChangeTileSet = function (a) {
-	return {ctor: 'ChangeTileSet', _0: a};
-};
-var _user$project$WFC_App$PropagateSome = function (a) {
-	return {ctor: 'PropagateSome', _0: a};
-};
 var _user$project$WFC_App$update = F2(
 	function (action, model) {
 		var _p16 = action;
@@ -21180,7 +21157,10 @@ var _user$project$WFC_App$update = F2(
 						{mouseTouch: _p16._0}),
 					{ctor: '[]'});
 			case 'Collapse':
-				return A2(_user$project$WFC_App$collapseFromInventory, model, _p16._0);
+				return A2(
+					_elm_lang$core$Platform_Cmd_ops['!'],
+					A2(_user$project$WFC_App$collapseFromInventory, model, _p16._0),
+					{ctor: '[]'});
 			case 'Select':
 				var _p18 = _p16._0;
 				var _p17 = model.mouseOver;
@@ -21227,36 +21207,13 @@ var _user$project$WFC_App$update = F2(
 						model,
 						{wave: wave}),
 					{ctor: '[]'});
-			case 'PropagateSome':
-				var _p19 = _p16._0;
-				if (_p19.ctor === '::') {
-					var _p20 = A2(model.propagator, model.wave, _p19._0);
-					var newWave = _p20._0;
-					var newTargets = _p20._1;
-					var task = _elm_lang$core$Task$succeed(
-						A2(_elm_lang$core$Basics_ops['++'], _p19._1, newTargets));
-					return A2(
-						_elm_lang$core$Platform_Cmd_ops['!'],
-						_elm_lang$core$Native_Utils.update(
-							model,
-							{wave: newWave}),
-						{
-							ctor: '::',
-							_0: A2(_elm_lang$core$Task$perform, _user$project$WFC_App$PropagateSome, task),
-							_1: {ctor: '[]'}
-						});
-				} else {
-					return A2(
-						_elm_lang$core$Platform_Cmd_ops['!'],
-						model,
-						{ctor: '[]'});
-				}
 			case 'TaskDone':
+				var pending2 = _elm_community$list_extra$List_Extra$unique(_p16._0._1);
 				return A2(
 					_elm_lang$core$Platform_Cmd_ops['!'],
 					_elm_lang$core$Native_Utils.update(
 						model,
-						{wave: _p16._0._0, pending: _p16._0._1}),
+						{wave: _p16._0._0, pending: pending2}),
 					{ctor: '[]'});
 			case 'ChangeTileSet':
 				return A2(
@@ -21277,7 +21234,10 @@ var _user$project$WFC_App$update = F2(
 					return _elm_lang$core$List$isEmpty(m.pending);
 				};
 				var go = _user$project$WFC_App$propagateOnce;
-				return (!stop(model)) ? A2(
+				return A2(
+					_elm_lang$core$Debug$log,
+					'tested',
+					!stop(model)) ? A2(
 					_elm_lang$core$Platform_Cmd_ops['!'],
 					model,
 					{
@@ -21290,6 +21250,23 @@ var _user$project$WFC_App$update = F2(
 					{ctor: '[]'});
 		}
 	});
+var _user$project$WFC_App$AnimationFrame = function (a) {
+	return {ctor: 'AnimationFrame', _0: a};
+};
+var _user$project$WFC_App$subscriptions = function (model) {
+	return _elm_lang$core$Platform_Sub$batch(
+		{
+			ctor: '::',
+			_0: _elm_lang$animation_frame$AnimationFrame$diffs(_user$project$WFC_App$AnimationFrame),
+			_1: {ctor: '[]'}
+		});
+};
+var _user$project$WFC_App$Select = function (a) {
+	return {ctor: 'Select', _0: a};
+};
+var _user$project$WFC_App$ChangeTileSet = function (a) {
+	return {ctor: 'ChangeTileSet', _0: a};
+};
 var _user$project$WFC_App$Propagate = function (a) {
 	return {ctor: 'Propagate', _0: a};
 };
@@ -21308,19 +21285,19 @@ var _user$project$WFC_App$Knot = {ctor: 'Knot'};
 var _user$project$WFC_App$CheckerboardABCDEF = {ctor: 'CheckerboardABCDEF'};
 var _user$project$WFC_App$CheckerboardAB = {ctor: 'CheckerboardAB'};
 var _user$project$WFC_App$viewLinks = function () {
-	var sizeLink = function (_p21) {
-		var _p22 = _p21;
+	var sizeLink = function (_p19) {
+		var _p20 = _p19;
 		return A2(
 			_elm_lang$html$Html$a,
 			{
 				ctor: '::',
 				_0: _elm_lang$html$Html_Events$onClick(
-					_user$project$WFC_App$ChangeSize(_p22._1)),
+					_user$project$WFC_App$ChangeSize(_p20._1)),
 				_1: {ctor: '[]'}
 			},
 			{
 				ctor: '::',
-				_0: _elm_lang$html$Html$text(_p22._0),
+				_0: _elm_lang$html$Html$text(_p20._0),
 				_1: {ctor: '[]'}
 			});
 	};
@@ -21345,26 +21322,26 @@ var _user$project$WFC_App$viewLinks = function () {
 					ctor: '::',
 					_0: {
 						ctor: '_Tuple2',
-						_0: ' huge ',
+						_0: ' huge (slow) ',
 						_1: {ctor: '_Tuple2', _0: 28, _1: 28}
 					},
 					_1: {ctor: '[]'}
 				}
 			}
 		});
-	var tileset = function (_p23) {
-		var _p24 = _p23;
+	var tileset = function (_p21) {
+		var _p22 = _p21;
 		return A2(
 			_elm_lang$html$Html$li,
 			{
 				ctor: '::',
 				_0: _elm_lang$html$Html_Events$onClick(
-					_user$project$WFC_App$ChangeTileSet(_p24._1)),
+					_user$project$WFC_App$ChangeTileSet(_p22._1)),
 				_1: {ctor: '[]'}
 			},
 			{
 				ctor: '::',
-				_0: _elm_lang$html$Html$text(_p24._0),
+				_0: _elm_lang$html$Html$text(_p22._0),
 				_1: {ctor: '[]'}
 			});
 	};
@@ -21427,21 +21404,21 @@ var _user$project$WFC_App$viewLinks = function () {
 					},
 					sizes))));
 }();
-var _user$project$WFC_App$view = function (_p25) {
-	var _p26 = _p25;
-	var _p32 = _p26.width;
-	var _p31 = _p26.wave;
-	var _p30 = _p26.mouseOver;
-	var _p29 = _p26.height;
+var _user$project$WFC_App$view = function (_p23) {
+	var _p24 = _p23;
+	var _p30 = _p24.width;
+	var _p29 = _p24.wave;
+	var _p28 = _p24.mouseOver;
+	var _p27 = _p24.height;
 	var inventoryIndex = function () {
-		var _p27 = _p30;
-		if (_p27.ctor === 'Just') {
-			return _p27._0;
+		var _p25 = _p28;
+		if (_p25.ctor === 'Just') {
+			return _p25._0;
 		} else {
-			return _p26.mouseTouch;
+			return _p24.mouseTouch;
 		}
 	}();
-	var styles = A2(_user$project$WFC_View$waveContainer, _p32 * 20, _p29 * 20);
+	var styles = A2(_user$project$WFC_View$waveContainer, _p30 * 20, _p27 * 20);
 	var drawStateDiv2 = F2(
 		function (iS, state) {
 			return A2(
@@ -21458,14 +21435,14 @@ var _user$project$WFC_App$view = function (_p25) {
 					_1: {ctor: '[]'}
 				});
 		});
-	var states = _user$project$WFC_App$getTileSet(_p26.tileset);
+	var states = _user$project$WFC_App$getTileSet(_p24.tileset);
 	var statesArray = _elm_lang$core$Array$fromList(states);
 	var drawPointDiv2 = F2(
 		function (i, point) {
 			var border = function () {
-				var _p28 = _p30;
-				if (_p28.ctor === 'Just') {
-					return _elm_lang$core$Native_Utils.eq(i, _p28._0) ? {
+				var _p26 = _p28;
+				if (_p26.ctor === 'Just') {
+					return _elm_lang$core$Native_Utils.eq(i, _p26._0) ? {
 						ctor: '::',
 						_0: _user$project$WFC_View$selectBorder,
 						_1: {ctor: '[]'}
@@ -21497,7 +21474,7 @@ var _user$project$WFC_App$view = function (_p25) {
 					},
 					border));
 		});
-	var waveDiv = A4(_user$project$WFC_View$drawWaveDiv, _p32, _p29, drawPointDiv2, _p31);
+	var waveDiv = A4(_user$project$WFC_View$drawWaveDiv, _p30, _p27, drawPointDiv2, _p29);
 	var pointDiv = A2(
 		_elm_lang$core$Maybe$withDefault,
 		A2(
@@ -21509,7 +21486,7 @@ var _user$project$WFC_App$view = function (_p25) {
 			function (point) {
 				return A3(_user$project$WFC_View$viewPointInventory, states, drawStateDiv2, point);
 			},
-			A2(_elm_lang$core$Array$get, inventoryIndex, _p31)));
+			A2(_elm_lang$core$Array$get, inventoryIndex, _p29)));
 	return A2(
 		_elm_lang$html$Html$div,
 		{ctor: '[]'},

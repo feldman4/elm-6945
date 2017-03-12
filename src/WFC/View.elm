@@ -169,6 +169,7 @@ drawStateDivNorm norm attributes state =
                     [ Css.backgroundColor
                         (x
                             |> (\x -> (toFloat x) / (toFloat norm))
+                            |> clamp 0 1
                             |> greyscale
                             |> setColorAlpha 0.5
                             |> toCssColor

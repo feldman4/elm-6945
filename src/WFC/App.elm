@@ -139,15 +139,8 @@ update action model =
 
         AnimationFrame diff ->
             let
-                z =
-                    Debug.log "af" 0
-
-                go m =
-                    let
-                        z =
-                            Debug.log "did" 0
-                    in
-                        propagateOnce m
+                go =
+                    propagateOnce
 
                 stop m =
                     List.isEmpty m.pending

@@ -6,6 +6,42 @@ import Dict exposing (Dict)
 import List.Extra exposing (lift2)
 
 
+anyArray : (a -> Bool) -> Array a -> Bool
+anyArray test array =
+    let
+        n =
+            Array.length array
+
+        iter i =
+            case (Array.get n array) of
+                Just val ->
+                    if test val then
+                        iter (i + 1)
+                    else
+                        False
+
+                Nothing ->
+                    False
+    in
+        iter 0
+
+
+pointToStatesIndexed : Array a -> Point -> List ( Int, a )
+pointToStatesIndexed states point =
+    let
+        get i =
+            case Array.get i states of
+                Just state ->
+                    Just ( i, state )
+
+                Nothing ->
+                    Nothing
+    in
+        point
+            |> maskToIndex
+            |> List.filterMap get
+
+
 pointToStates : Array a -> Point -> List a
 pointToStates states point =
     point
@@ -59,6 +95,8 @@ to2DIndex x y index =
     ( index // x, index % y )
 
 
+{-| inRange low high val = low < val < high
+-}
 inRange : comparable -> comparable -> comparable -> Bool
 inRange less more value =
     (less < value) && (value < more)
@@ -175,9 +213,9 @@ maybeMember xs x =
         Nothing
 
 
-edgeToOffset : Int -> Edge -> Maybe ( Int, Int )
-edgeToOffset n edge =
-    (edge |> toOffset n n |> maybeMember offsets)
+edgeToOffset : Int -> Int -> Edge -> Maybe ( Int, Int )
+edgeToOffset x y edge =
+    (edge |> toOffset x y |> maybeMember offsets)
 
 
 {-| Return linear index for subrectangle with offset.

@@ -13,28 +13,65 @@ import Color exposing (greyscale, red, toRgb)
 import Css exposing (pct, px)
 
 
-waveContainer : Int -> Int -> Html msg -> Html msg
-waveContainer x y contents =
+viewPointInventory : List State -> (Int -> State -> Html msg) -> Point -> Html msg
+viewPointInventory stateList view point =
     let
-        s =
-            [ Css.width (x |> toFloat |> px)
-            , Css.height (y |> toFloat |> px)
-            , Css.position Css.relative
-            , Css.overflow Css.hidden
+        pointStyles =
+            [ styles
+                [ Css.position Css.relative
+                , Css.height (px 50)
+                , Css.width (px 50)
+                , Css.margin (px 5)
+                , Css.flex Css.none
+                ]
+            ]
+
+        inventoryStyles =
+            [ styles
+                [ Css.displayFlex, Css.width (px 300), Css.flexWrap Css.wrap ]
             ]
     in
-        div [ styles s ] [ contents ]
+        pointToStatesIndexed (stateList |> Array.fromList) point
+            |> List.map (\( i, x ) -> div pointStyles [ view i x ])
+            |> div inventoryStyles
 
 
-drawPointDiv : Array State -> Point -> Html msg
-drawPointDiv stateArray point =
+centerPixel : Html.Attribute msg
+centerPixel =
+    styles
+        [ Css.zIndex (Css.int 10000)
+          -- , Css.border3 (px 2) Css.solid (toCssColor red)
+        ]
+
+
+selectBorder : Html.Attribute msg
+selectBorder =
+    styles
+        [ Css.border3 (px 2) Css.solid (toCssColor red)
+        , Css.boxSizing Css.borderBox
+        ]
+
+
+waveContainer : Int -> Int -> Html.Attribute msg
+waveContainer x y =
+    [ Css.width (x |> toFloat |> px)
+    , Css.height (y |> toFloat |> px)
+    , Css.position Css.relative
+    , Css.overflow Css.hidden
+    , Css.margin (px 0)
+    ]
+        |> styles
+
+
+drawPointDiv : Array State -> Point -> List (Html.Attribute msg) -> Html msg
+drawPointDiv stateArray point attributes =
     let
         stateList =
             pointToStates stateArray point
     in
         stateList
             |> superimposeStates
-            |> drawStateDivNorm (List.length stateList)
+            |> drawStateDivNorm (List.length stateList) attributes
 
 
 superimposeStates : List State -> State
@@ -62,7 +99,7 @@ superimposeStates stateList =
         List.foldl f zero stateList
 
 
-drawWaveDiv : Int -> Int -> (Point -> Html msg) -> Wave -> Html msg
+drawWaveDiv : Int -> Int -> (Int -> Point -> Html msg) -> Wave -> Html msg
 drawWaveDiv x y pointToDiv wave =
     let
         positionAndZoom n =
@@ -75,7 +112,7 @@ drawWaveDiv x y pointToDiv wave =
         pointDivs =
             wave
                 |> Array.toList
-                |> List.map pointToDiv
+                |> List.indexedMap pointToDiv
                 |> List.indexedMap (\n a -> div [ positionAndZoom n ] [ a ])
     in
         div [ styles [ Css.height (pct 100), Css.width (pct 100) ] ] pointDivs
@@ -102,8 +139,29 @@ drawStateDiv state =
         drawSquare state
 
 
-drawStateDivNorm : Int -> State -> Html msg
-drawStateDivNorm norm state =
+drawStateDivAlpha : Float -> State -> Html msg
+drawStateDivAlpha alpha state =
+    let
+        drawPixel i x =
+            let
+                color =
+                    [ Css.backgroundColor (x |> toFloat |> greyscale |> toCssColor) ]
+
+                position =
+                    toCssPosition 3 3 i
+            in
+                div [ styles (color ++ position) ] []
+
+        drawSquare ( ( a11, a12, a13 ), ( a21, a22, a23 ), ( a31, a32, a33 ) ) =
+            [ a11, a12, a13, a21, a22, a23, a31, a32, a33 ]
+                |> List.indexedMap drawPixel
+                |> div [ styles [ Css.height (pct 100), Css.width (pct 100) ] ]
+    in
+        drawSquare state
+
+
+drawStateDivNorm : Int -> List (Html.Attribute msg) -> State -> Html msg
+drawStateDivNorm norm attributes state =
     let
         drawPixel i x =
             let
@@ -112,14 +170,21 @@ drawStateDivNorm norm state =
                         (x
                             |> (\x -> (toFloat x) / (toFloat norm))
                             |> greyscale
+                            |> setColorAlpha 0.5
                             |> toCssColor
                         )
                     ]
 
                 position =
                     toCssPosition 3 3 i
+
+                extraAttributes =
+                    if i == 4 then
+                        attributes
+                    else
+                        []
             in
-                div [ styles (color ++ position) ] []
+                div (styles (color ++ position) :: extraAttributes) []
 
         drawSquare ( ( a11, a12, a13 ), ( a21, a22, a23 ), ( a31, a32, a33 ) ) =
             [ a11, a12, a13, a21, a22, a23, a31, a32, a33 ]
@@ -170,6 +235,15 @@ toCssColor color =
             color |> toRgb
     in
         Css.rgba c.red c.green c.blue c.alpha
+
+
+setColorAlpha : Float -> Color.Color -> Color.Color
+setColorAlpha alpha color =
+    let
+        { red, green, blue } =
+            toRgb color
+    in
+        Color.rgba red green blue alpha
 
 
 styles : List Css.Mixin -> Html.Attribute msg

@@ -27,11 +27,7 @@ propagate edges propagator wave iW1 =
         -- test if a single neighboring state agrees with at least one
         agree : IndexW -> IndexS -> Bool
         agree iW2 iS2 =
-            let
-                y =
-                    states |> List.any (\iS1 -> propagator iS1 iS2 ( iW1, iW2 ))
-            in
-                states |> List.any (\iS1 -> propagator iS1 iS2 ( iW1, iW2 ))
+            states |> List.any (\iS1 -> propagator iS1 iS2 ( iW1, iW2 ))
 
         -- map over neighboring states, only testing if true
         update : IndexW -> Point -> Point
@@ -168,6 +164,52 @@ propagateWithHistory indexWListWaveIndexWWave ( wave, indexWList ) =
 -- HELPFUL
 
 
+contradiction : Wave -> Bool
+contradiction wave =
+    let
+        innerTest point =
+            anyArray identity point
+    in
+        anyArray innerTest wave
+
+
+collapseSpecific : IndexW -> IndexS -> Wave -> Maybe Wave
+collapseSpecific iW iS wave =
+    case Array.get iW wave of
+        Nothing ->
+            Nothing
+
+        Just point ->
+            let
+                m =
+                    Array.length point
+
+                newPoint =
+                    False |> List.repeat m |> Array.fromList |> Array.set iS True
+            in
+                if inRange -1 m iS then
+                    Just (Array.set iW newPoint wave)
+                else
+                    Nothing
+
+
+selectorSimple : Point -> Maybe IndexS
+selectorSimple point =
+    point |> Array.filter identity |> Array.length |> (*) -1 |> Just
+
+
+selectorEntropy : Array State -> Point -> Maybe number
+selectorEntropy statesArray point =
+    pointToStates statesArray point
+        |> tileEntropy
+        |> (\x ->
+                if x < 3 then
+                    Nothing
+                else
+                    Just x
+           )
+
+
 {-| Returns Nothing if there are no True coefficients in the Point.
 -}
 simpleCollapser : Collapser
@@ -209,7 +251,7 @@ main =
             gridEdges n n
 
         states =
-            knot
+            checkerboardABCDEF
 
         k =
             List.length states
@@ -230,40 +272,34 @@ main =
 
         propagator : Compatibility
         propagator =
-            makeTileCompatibility states (edgeToOffset n)
-
-        selector point =
-            pointToStates statesArray point
-                |> tileEntropy
-                |> (\x ->
-                        if x < 3 then
-                            Nothing
-                        else
-                            Just x
-                   )
+            makeTileCompatibility states (edgeToOffset n n)
 
         observationDeck =
             observeThenPropagate
-                selector
+                selectorSimple
                 simpleCollapser
                 (propagate edges propagator)
 
+        drawPointDiv2 i point =
+            drawPointDiv statesArray point []
+
         showWave wave =
-            drawWaveDiv n n (drawPointDiv statesArray) wave |> waveContainer (n * 20) (n * 20)
+            drawWaveDiv n n drawPointDiv2 wave
+                |> List.repeat 1
+                |> div [ waveContainer (n * 20) (n * 20) ]
     in
         div []
             [ initialWave |> showWave
-            , initialWave |> observationDeck |> showWave
-            , initialWave |> repeatApply observationDeck 2 |> showWave
-            , initialWave |> repeatApply observationDeck 10 |> showWave
+              -- , initialWave |> repeatApply observationDeck 1 |> showWave
+              -- , initialWave |> repeatApply observationDeck 2 |> showWave
+              -- , initialWave |> repeatApply observationDeck 3 |> showWave
+              -- , initialWave |> repeatApply observationDeck 4 |> showWave
+              -- , initialWave |> repeatApply observationDeck 5 |> showWave
+            , initialWave |> repeatApply observationDeck 6 |> showWave
             ]
 
 
 
---
--- , initialWave |> observationDeck |> showWave
--- , initialWave |> repeatApply observationDeck 2 |> showWave
--- , pointHtml
 -- , finalWave |> viewWave n n
 --   -- , br [] []
 --   -- , testViewOverlaps n (propagator 4 5)

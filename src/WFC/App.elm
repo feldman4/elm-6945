@@ -112,11 +112,9 @@ update action model =
                 { model | wave = wave } ! []
 
         TaskDone ( wave, pending ) ->
-            -- set-join pending queues?
-            -- or does that just build up anyway
             let
                 pending2 =
-                    List.Extra.unique pending
+                    List.Extra.unique (pending ++ model.pending)
             in
                 { model | wave = wave, pending = pending2 } ! []
 
@@ -137,8 +135,8 @@ update action model =
                 done m =
                     TaskDone ( m.wave, m.pending )
             in
-                if not (stop model) |> Debug.log "tested" then
-                    model ! [ runUntil go stop done model (diff * 0.5) ]
+                if not (stop model) then
+                    model ! [ runUntil go stop done model (Time.second * 0.25) ]
                 else
                     model ! []
 
@@ -160,18 +158,13 @@ propagateOnce model =
 
 
 {-| Transforms the input using the `go` function until either the `stop` condition
-is met, or the alloted time `period` has elapsed. Isn't working well for periods
-below 100 ms.
+is met, or the alloted time `period` has elapsed.
 -}
 runUntil : (a -> a) -> (a -> Bool) -> (a -> msg) -> a -> Time -> Cmd msg
 runUntil go stop done input period =
     let
         initialData t =
-            let
-                z =
-                    Debug.log "launched"
-            in
-                ( t + period, input )
+            ( t + period, input )
 
         doUpdate ( t, m ) =
             ( t, go m )
@@ -188,14 +181,10 @@ runUntil go stop done input period =
 
         loop : Task Never ( Time, a ) -> Task Never a
         loop task =
-            let
-                z =
-                    Debug.log "looped" 0
-            in
-                task
-                    |> Task.map doUpdate
-                    |> Task.map2 (,) Time.now
-                    |> Task.andThen checkTime
+            task
+                |> Task.map doUpdate
+                |> Task.map2 (,) Time.now
+                |> Task.andThen checkTime
     in
         Task.perform done (loop startLoop)
 

@@ -1,4 +1,4 @@
-module WFC exposing (..)
+module WFC.WFC exposing (..)
 
 import WFC.View exposing (..)
 import WFC.Types exposing (..)
@@ -14,9 +14,117 @@ import Random.Pcg exposing (Seed)
 -- CORE
 
 
-propagate : Edges -> Compatibility -> Propagator
-propagate edges propagator wave iW1 =
+propagateSupport : Compatibility -> Propagator2
+propagateSupport compatibility ({ support, edges, m, wave } as wave2) ( iW1, dPoint ) =
     let
+        iSs =
+            List.range 0 (m - 1)
+
+        iW2s =
+            Dict.get iW1 edges |> Maybe.withDefault []
+
+        -- change in support due to losing iS1s in dPoint
+        -- could be faster to store compatibility for all iS1 as an Array
+        -- and then filter it instead of up to M dictionary calls
+        dSupport edge iS2 =
+            dPoint
+                |> List.filter (\iS1 -> compatibility iS1 iS2 edge)
+                |> List.length
+
+        -- for a single iW2 and iS2, decrement support based on dPoint
+        updateSupport : ( IndexW, IndexS ) -> Support -> Support
+        updateSupport ( iW2, iS2 ) s =
+            let
+                edge =
+                    ( iW1, iW2 )
+
+                f x =
+                    x - (dSupport edge iS2)
+            in
+                Dict.update ( edge, iS2 ) (Maybe.map f) s
+
+        -- update support for each neighbor and all states
+        newSupport =
+            lift2 (,) iW2s iSs
+                |> List.foldl updateSupport support
+
+        -- get the new dPoints
+        -- new support must be zero
+        -- old support must be positive
+        -- wave coefficient cannot be zero
+        lostSupport : IndexW -> List Int
+        lostSupport iW2 =
+            let
+                old =
+                    supportVector m support iW1 iW2
+
+                new =
+                    supportVector m newSupport iW1 iW2
+
+                test ( old_, new_ ) =
+                    let
+                        wtf =
+                            if old_ < 0 || new_ < 0 then
+                                Debug.log "wtf" ( iW1, iW2, old, new )
+                            else
+                                ( 0, 0, [], [] )
+                    in
+                        (new_ == 0) && (old_ > 0)
+            in
+                List.map2 (,) old new
+                    |> List.Extra.findIndices test
+
+        toPoint2 iW2 =
+            let
+                -- if this point is collapsed, don't bother
+                coefficients =
+                    Array.get iW2 wave
+                        |> Maybe.map maskToIndex
+                        |> Maybe.withDefault []
+
+                -- only collapse if the coefficient is positive
+                f iS =
+                    List.member iS coefficients
+            in
+                if List.length coefficients > 1 then
+                    case lostSupport iW2 |> List.filter f of
+                        [] ->
+                            Nothing
+
+                        iSs ->
+                            Just ( iW2, iSs )
+                else
+                    Nothing
+
+        nextPoints =
+            iW2s |> List.filterMap toPoint2
+
+        -- zero out the wave coefficients
+        setToZero ( iW, iSs ) w =
+            let
+                newPoint =
+                    Array.get iW w
+                        |> Maybe.withDefault Array.empty
+
+                newPoint2 =
+                    List.foldl (\i a -> Array.set i False a) newPoint iSs
+            in
+                Array.set iW newPoint2 w
+
+        newWave =
+            List.foldl setToZero wave nextPoints
+    in
+        ( { wave2 | support = newSupport, wave = newWave }, nextPoints )
+
+
+propagate : Edges -> Compatibility -> Propagator
+propagate edges compatibility wave iW1 =
+    let
+        neighbors =
+            edges
+                |> Dict.get iW1
+                |> Maybe.withDefault []
+
         -- current states
         states : List IndexS
         states =
@@ -27,7 +135,7 @@ propagate edges propagator wave iW1 =
         -- test if a single neighboring state agrees with at least one
         agree : IndexW -> IndexS -> Bool
         agree iW2 iS2 =
-            states |> List.any (\iS1 -> propagator iS1 iS2 ( iW1, iW2 ))
+            states |> List.any (\iS1 -> compatibility iS1 iS2 ( iW1, iW2 ))
 
         -- map over neighboring states, only testing if true
         update : IndexW -> Point -> Point
@@ -55,11 +163,6 @@ propagate edges propagator wave iW1 =
                     Nothing
                 else
                     Just newPoint
-
-        neighbors =
-            edges
-                |> Dict.get iW1
-                |> Maybe.withDefault []
 
         foldIt iW2 ( waveSoFar, toDo ) =
             case solveNeighbor iW2 of
@@ -191,6 +294,39 @@ collapseSpecific iW iS wave =
                     Just (Array.set iW newPoint wave)
                 else
                     Nothing
+
+
+collapseSpecific2 : IndexW -> IndexS -> Compatibility -> Wave2 -> Maybe ( Wave2, PointMod )
+collapseSpecific2 iW iS compatibility wave2 =
+    let
+        wave =
+            wave2wave wave2
+
+        findUnequal p1 p2 =
+            List.map2 (==) (p1 |> Array.toList) (p2 |> Array.toList)
+                |> List.Extra.findIndices identity
+    in
+        case Array.get iW wave of
+            Nothing ->
+                Nothing
+
+            Just point ->
+                let
+                    m =
+                        Array.length point
+
+                    newPoint =
+                        False |> List.repeat m |> Array.fromList |> Array.set iS True
+
+                    f w =
+                        ( { wave2 | support = waveToSupport wave2.edges compatibility w }
+                        , ( iW, findUnequal point newPoint )
+                        )
+                in
+                    if inRange -1 m iS then
+                        Just (Array.set iW newPoint wave |> f)
+                    else
+                        Nothing
 
 
 selectorSimple : Point -> Maybe IndexS

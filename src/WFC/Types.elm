@@ -8,6 +8,22 @@ type alias Wave =
     Array Point
 
 
+type alias Wave2 =
+    { support : Support, wave : Wave, edges : Edges, n : Int, m : Int }
+
+
+type alias Support =
+    Dict ( Edge, IndexS ) Int
+
+
+type alias Point2 =
+    List Int
+
+
+type alias PointMod =
+    ( IndexW, Point2 )
+
+
 type alias Point =
     Array Bool
 
@@ -28,6 +44,10 @@ type alias Collapser =
 
 type alias Propagator =
     Wave -> IndexW -> ( Wave, List IndexW )
+
+
+type alias Propagator2 =
+    Wave2 -> PointMod -> ( Wave2, List PointMod )
 
 
 type alias IndexS =

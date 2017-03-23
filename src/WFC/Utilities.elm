@@ -4,6 +4,138 @@ import WFC.Types exposing (..)
 import Array exposing (Array)
 import Dict exposing (Dict)
 import List.Extra exposing (lift2)
+import Dict.Extra
+
+
+aMap2 : (a -> b) -> Array (Array a) -> Array (Array b)
+aMap2 f a =
+    Array.map (Array.map f) a
+
+
+aFind2 : (a -> b -> Bool) -> Array a -> Array b -> List Int
+aFind2 f xs ys =
+    List.map2 (,) (xs |> Array.toList) (ys |> Array.toList)
+        |> List.Extra.findIndices (\( a, b ) -> f a b)
+
+
+collapsePoint2 : IndexW -> IndexS -> Wave2 -> Wave2
+collapsePoint2 iW iS wave2 =
+    let
+        point =
+            Array.repeat wave2.m False |> Array.set iS True
+    in
+        { wave2 | wave = Array.set iW point wave2.wave }
+
+
+wave2wave : Wave2 -> Wave
+wave2wave { n, m, edges, support } =
+    supportToWave n
+        m
+        edges
+        support
+
+
+unsafeJust : Maybe a -> a
+unsafeJust a =
+    case a of
+        Just val ->
+            val
+
+        Nothing ->
+            Debug.crash "unsafe"
+
+
+waveToSupport : Edges -> Compatibility -> Wave -> Support
+waveToSupport edges compatibility wave =
+    let
+        -- flatten
+        f ( x, ys ) =
+            List.map (\y -> ( x, y )) ys
+
+        -- every (iW1, iW2) edge
+        edgesList =
+            edges |> Dict.toList |> List.concatMap f
+
+        m =
+            wave
+                |> Array.get 0
+                |> Maybe.map Array.length
+                |> unsafeJust
+
+        iSs =
+            List.range 0 (m - 1)
+
+        -- for a given edge and target state
+        sumSupport edge iS2 =
+            iSs
+                |> List.filter (\x -> compatibility x iS2 edge)
+                |> List.length
+
+        buildSupport ( edge, iS2 ) =
+            ( ( edge, iS2 ), sumSupport edge iS2 )
+    in
+        List.Extra.lift2 (,) edgesList iSs
+            |> List.map buildSupport
+            |> Dict.fromList
+
+
+supportVector : Int -> Support -> IndexW -> IndexW -> List IndexS
+supportVector m support iW1 iW2 =
+    List.range 0 (m - 1)
+        |> List.filterMap (\iS -> Dict.get ( ( iW1, iW2 ), iS ) support)
+
+
+{-| Build a wave out of supported points. The dimensions of the wave are not
+quite specified by the Edge representation, although we could include them in
+s
+-}
+supportToWave : Int -> Int -> Edges -> Support -> Wave
+supportToWave n m edges support =
+    let
+        edges2 =
+            invertDict edges
+
+        iWs =
+            List.range 0 (n - 1)
+
+        iSs =
+            List.range 0 (m - 1)
+
+        f iS iW2 iW1 =
+            Dict.get ( ( iW1, iW2 ), iS ) support
+                |> Maybe.withDefault 0
+                |> (<) 0
+
+        allSupport iW2 iS =
+            let
+                -- need support from all these edges
+                iW1s =
+                    Dict.get iW2 edges2 |> Maybe.withDefault []
+            in
+                iW1s |> List.all (f iS iW2)
+
+        makePoint iW2 =
+            iSs |> List.map (allSupport iW2) |> Array.fromList
+    in
+        iWs |> List.map makePoint |> Array.fromList
+
+
+{-| Dict x (List y) -> Dict y (List x)
+-}
+invertDict : Dict comparable (List comparable1) -> Dict comparable1 (List comparable)
+invertDict dict =
+    let
+        f ( x, ys ) =
+            List.map (\y -> ( x, y )) ys
+
+        g _ xys =
+            List.map Tuple.first xys
+    in
+        dict
+            |> Dict.toList
+            |> List.concatMap f
+            |> Dict.Extra.groupBy Tuple.second
+            |> Dict.map g
 
 
 anyArray : (a -> Bool) -> Array a -> Bool

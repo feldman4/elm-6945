@@ -1,6 +1,6 @@
 module WFC.App exposing (..)
 
-import WFC exposing (..)
+import WFC.WFC exposing (..)
 import WFC.Types exposing (..)
 import WFC.View exposing (..)
 import WFC.Tile exposing (..)
@@ -28,33 +28,55 @@ init : Int -> Int -> TileSet -> Model
 init height width tileset =
     let
         model =
-            { wave = Array.empty
+            { wave = wave
+            , wave2 = wave2
             , tileset = tileset
-            , edges = gridEdges height width
-            , propagator = (\a b -> a [ b ])
+            , edges = edges
+            , propagator = propagate edges compatibility
+            , propagator2 = propagateSupport compatibility
             , pending = []
+            , pending2 = []
             , height = height
             , width = width
             , mouseOver = Nothing
             , mouseTouch = -1
+            , working = False
             }
 
         compatibility =
-            makeTileCompatibility (getTileSet model.tileset) (edgeToOffset height width)
+            makeTileCompatibility (getTileSet tileset) (edgeToOffset height width)
+
+        edges =
+            gridEdges height width
+
+        wave =
+            initWave height width tileset
+
+        wave2 =
+            { support = waveToSupport edges compatibility wave
+            , n = height * width
+            , m = List.length (getTileSet tileset)
+            , edges = edges
+            , wave = wave
+            }
     in
-        { model | wave = initWave model, propagator = propagate model.edges compatibility }
+        model
 
 
 type alias Model =
     { wave : Wave
+    , wave2 : Wave2
     , tileset : TileSet
     , edges : Edges
     , propagator : Propagator
+    , propagator2 : Propagator2
     , pending : List IndexW
+    , pending2 : List PointMod
     , height : Int
     , width : Int
     , mouseOver : Maybe Int
     , mouseTouch : Int
+    , working : Bool
     }
 
 
@@ -68,6 +90,7 @@ type Action
     | Select IndexW
     | AnimationFrame Float
     | TaskDone ( Wave, List IndexW )
+    | TaskDone2 ( Wave2, List PointMod )
     | ChangeSize ( Int, Int )
 
 
@@ -82,16 +105,53 @@ update : Action -> Model -> ( Model, Cmd Action )
 update action model =
     case action of
         Reset ->
-            { model | wave = initWave model } ! []
+            init model.height model.width model.tileset ! []
 
-        Observe _ ->
-            { model | wave = observationDeck model } ! []
+        Observe x ->
+            let
+                y =
+                    Debug.log "observed x" x
+            in
+                { model | wave = observationDeck model } ! []
 
         MouseEnter val ->
             { model | mouseTouch = val } ! []
 
         Collapse iS ->
-            (collapseFromInventory model iS) ! []
+            -- need to update support and wave when a point is collapsed
+            let
+                newModel =
+                    collapseFromInventory model iS
+
+                getter iW w =
+                    Array.get iW w |> Maybe.withDefault Array.empty
+
+                test old new =
+                    let
+                        a =
+                            Debug.log "old,new" ( old, new, old && (not new) )
+                    in
+                        old && (not new)
+
+                finder iW =
+                    aFind2 test (getter iW model.wave2.wave) (getter iW newModel.wave)
+
+                -- sketchy: don't immediately update support to be consistent with collapse
+                -- relying instead on the next propagation to do it
+                ( newWave2, pointMod ) =
+                    case model.mouseOver of
+                        Just iW ->
+                            ( collapsePoint2 iW iS model.wave2, [ ( iW, finder iW ) ] )
+
+                        Nothing ->
+                            ( model.wave2, [] )
+            in
+                ({ newModel
+                    | pending2 = pointMod ++ newModel.pending2
+                    , wave2 = newWave2
+                 }
+                )
+                    ! []
 
         Select iW ->
             case model.mouseOver of
@@ -116,7 +176,14 @@ update action model =
                 pending2 =
                     List.Extra.unique (pending ++ model.pending)
             in
-                { model | wave = wave, pending = pending2 } ! []
+                { model | wave = wave, pending = pending2, working = False } ! []
+
+        TaskDone2 ( wave2, pending2 ) ->
+            let
+                x =
+                    condensePending2 model.pending2 pending2
+            in
+                { model | wave2 = wave2, pending2 = x, working = False } ! []
 
         ChangeTileSet tileset ->
             (init model.height model.width tileset) ! []
@@ -126,6 +193,18 @@ update action model =
 
         AnimationFrame diff ->
             let
+                go2 =
+                    propagateOnce2
+
+                stop2 m =
+                    List.isEmpty m.pending2
+
+                done2 m =
+                    TaskDone2 ( m.wave2, m.pending2 )
+
+                cmd2 =
+                    runUntil go2 stop2 done2 model (Time.second * 0.3)
+
                 go =
                     propagateOnce
 
@@ -134,9 +213,12 @@ update action model =
 
                 done m =
                     TaskDone ( m.wave, m.pending )
+
+                cmd =
+                    runUntil go stop done model (Time.second * 0.03)
             in
-                if not (stop model) then
-                    model ! [ runUntil go stop done model (Time.second * 0.25) ]
+                if not (stop2 model) && model.working == False then
+                    { model | working = True, pending2 = [] } ! [ cmd2 ]
                 else
                     model ! []
 
@@ -151,18 +233,66 @@ propagateOnce model =
                 ( newWave, newTargets ) =
                     model.propagator model.wave iW
             in
-                { model | wave = newWave, pending = newTargets ++ rest }
+                { model | wave = newWave, pending = rest ++ newTargets }
 
         [] ->
             model
 
 
-{-| Transforms the input using the `go` function until either the `stop` condition
-is met, or the alloted time `period` has elapsed.
+propagateOnce2 : Model -> Model
+propagateOnce2 model =
+    case model.pending2 of
+        pointMod :: rest ->
+            let
+                ( newWave, newTargets ) =
+                    model.propagator2 model.wave2 pointMod
+            in
+                { model
+                    | wave2 = newWave
+                    , pending2 = condensePending2 rest newTargets
+                }
+
+        [] ->
+            model
+
+
+condensePending2 : List PointMod -> List PointMod -> List PointMod
+condensePending2 xs ys =
+    let
+        same ( x, _ ) ( y, _ ) =
+            x == y
+
+        combine : List PointMod -> Maybe PointMod
+        combine values =
+            case values of
+                [] ->
+                    Nothing
+
+                ( iW, _ ) :: rest ->
+                    List.concatMap Tuple.second values
+                        |> List.Extra.unique
+                        |> (\xs -> Just ( iW, xs ))
+    in
+        (xs ++ ys)
+            |> List.sort
+            |> List.Extra.groupWhile same
+            |> List.filterMap combine
+
+
+{-| Transforms the input using the `go` function until either the `stop`
+condition is met, or the alloted time `period` has elapsed.
+
+Running the loop takes about 0.5 ms. If `go` is repeated addition by 1, the time
+per repeat is ~1 us.
+
+Propagation is usually dominated by time in the function?
 -}
 runUntil : (a -> a) -> (a -> Bool) -> (a -> msg) -> a -> Time -> Cmd msg
 runUntil go stop done input period =
     let
+        timeNow =
+            Task.map (Debug.log "timeNow") Time.now
+
         initialData t =
             ( t + period, input )
 
@@ -172,6 +302,10 @@ runUntil go stop done input period =
         checkTime : ( Time, ( Time, a ) ) -> Task Never a
         checkTime ( t_, ( t, m ) ) =
             if (t < t_ || stop m) then
+                -- let
+                --     z =
+                --         Debug.log "t,t_ " ( t - t_, stop m )
+                -- in
                 Task.succeed m
             else
                 Task.succeed ( t, m ) |> loop
@@ -195,10 +329,14 @@ collapseFromInventory model iS =
         Just iW ->
             case collapseSpecific iW iS model.wave of
                 Just wave ->
-                    { model | wave = wave, pending = iW :: model.pending }
+                    { model
+                        | wave = wave
+                        , pending = iW :: model.pending
+                        , mouseOver = Nothing
+                    }
 
                 Nothing ->
-                    (model |> Debug.log "bad collapse")
+                    model
 
         Nothing ->
             model
@@ -229,8 +367,8 @@ observationDeck { edges, propagator, wave } =
         wave
 
 
-initWave : { b | height : Int, tileset : TileSet, width : Int } -> Wave
-initWave { height, width, tileset } =
+initWave : Int -> Int -> TileSet -> Wave
+initWave height width tileset =
     let
         n =
             height * width
@@ -242,8 +380,18 @@ initWave { height, width, tileset } =
 
 
 view : Model -> Html.Html Action
-view { wave, height, width, tileset, mouseOver, mouseTouch } =
+view { wave, height, width, tileset, mouseOver, mouseTouch, edges, wave2 } =
     let
+        -- n =
+        --     Array.length wave
+        --
+        -- m =
+        --     Array.get 0 wave |> Maybe.map Array.length |> Maybe.withDefault 0
+        --
+        -- wave_ = supportToWave n m edges wave2.wave
+        wave_ =
+            wave2.wave
+
         states =
             getTileSet tileset
 
@@ -276,7 +424,7 @@ view { wave, height, width, tileset, mouseOver, mouseTouch } =
             div [ onClick (Collapse iS) ] [ drawStateDiv state ]
 
         waveDiv =
-            drawWaveDiv width height drawPointDiv2 wave
+            drawWaveDiv width height drawPointDiv2 wave_
 
         styles =
             waveContainer (width * 20) (height * 20)
@@ -290,7 +438,7 @@ view { wave, height, width, tileset, mouseOver, mouseTouch } =
                     mouseTouch
 
         pointDiv =
-            Array.get inventoryIndex wave
+            Array.get inventoryIndex wave_
                 |> Maybe.map (\point -> viewPointInventory states drawStateDiv2 point)
                 |> Maybe.withDefault (div [] [])
     in
@@ -337,7 +485,19 @@ viewLinks =
 
 subscriptions : Model -> Sub Action
 subscriptions model =
-    Sub.batch [ AnimationFrame.diffs AnimationFrame ]
+    let
+        contradiction point =
+            maskToIndex point |> List.isEmpty
+
+        flag =
+            model.wave2.wave
+                |> Array.toList
+                |> List.any contradiction
+    in
+        if False then
+            Sub.batch []
+        else
+            Sub.batch [ AnimationFrame.diffs AnimationFrame ]
 
 
 
@@ -349,7 +509,7 @@ subscriptions model =
 --   function.
 -- otherwise, call continuation
 -- 2. interactivity I: click to observe. double-click to reset.
--- 3. interactivity II: mouse-over to expand Point into available States (also
+-- 3. interactivity II:2 mouse-over to expand Point into available States (also
 --    show entropy)
 -- 4. interactivity III: JS file drop zone, convert to tileset
 -- 5. interactivity IV: shift-click to spray uncertainty. double-click to reset.

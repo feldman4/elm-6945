@@ -21038,7 +21038,6 @@ var _user$project$WFC_App$runUntil = F5(
 			};
 		};
 		var loop = function (task) {
-			var z = A2(_elm_lang$core$Debug$log, 'looped', 0);
 			return A2(
 				_elm_lang$core$Task$andThen,
 				checkTime,
@@ -21060,7 +21059,6 @@ var _user$project$WFC_App$runUntil = F5(
 					{ctor: '_Tuple2', _0: _p13, _1: _p12}));
 		};
 		var initialData = function (t) {
-			var z = _elm_lang$core$Debug$log('launched');
 			return {ctor: '_Tuple2', _0: t + period, _1: input};
 		};
 		var startLoop = A2(_elm_lang$core$Task$map, initialData, _elm_lang$core$Time$now);
@@ -21208,7 +21206,8 @@ var _user$project$WFC_App$update = F2(
 						{wave: wave}),
 					{ctor: '[]'});
 			case 'TaskDone':
-				var pending2 = _elm_community$list_extra$List_Extra$unique(_p16._0._1);
+				var pending2 = _elm_community$list_extra$List_Extra$unique(
+					A2(_elm_lang$core$Basics_ops['++'], _p16._0._1, model.pending));
 				return A2(
 					_elm_lang$core$Platform_Cmd_ops['!'],
 					_elm_lang$core$Native_Utils.update(
@@ -21234,15 +21233,12 @@ var _user$project$WFC_App$update = F2(
 					return _elm_lang$core$List$isEmpty(m.pending);
 				};
 				var go = _user$project$WFC_App$propagateOnce;
-				return A2(
-					_elm_lang$core$Debug$log,
-					'tested',
-					!stop(model)) ? A2(
+				return (!stop(model)) ? A2(
 					_elm_lang$core$Platform_Cmd_ops['!'],
 					model,
 					{
 						ctor: '::',
-						_0: A5(_user$project$WFC_App$runUntil, go, stop, done, model, _p16._0 * 0.5),
+						_0: A5(_user$project$WFC_App$runUntil, go, stop, done, model, _elm_lang$core$Time$second * 0.25),
 						_1: {ctor: '[]'}
 					}) : A2(
 					_elm_lang$core$Platform_Cmd_ops['!'],

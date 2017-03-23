@@ -1,6 +1,8 @@
 module Match exposing (..)
 
 import Html exposing (text, div)
+import Html.Events exposing (onInput)
+import Html.Attributes exposing (value)
 import Dict exposing (Dict)
 import String exposing (startsWith, endsWith, split)
 
@@ -16,21 +18,94 @@ import String exposing (startsWith, endsWith, split)
 -- but not on constructors stored in variables - is this true in Haskell?
 
 
-main : Html.Html msg
-main =
+main2 : Html.Html msg
+main2 =
     let
         viewMatch matcher data =
             matcher Dict.empty failToDebug data
                 |> Maybe.withDefault ("no match for " ++ (data |> toString))
                 |> (\s -> div [] [ text s ])
     in
-        [ -- ( exampleMatcher, stringToData "abc" )
-          ( exampleMatcher2, stringToData "abbbbca" )
-        , ( exampleMatcher2, schemeString "(a (c d) a)" )
+        [ ( exampleMatcher, stringToData "abc" )
+          -- , ( exampleMatcher2, stringToData "abbbbca" )
+          -- , ( exampleMatcher2, schemeString "(a (c d) a)" )
           -- ,
         ]
             |> List.map (\( a, b ) -> viewMatch a b)
             |> div []
+
+
+main : Program Never (Model String) Action
+main =
+    Html.program
+        { init = init ! []
+        , update = update
+        , view = view
+        , subscriptions = (\_ -> Sub.batch [])
+        }
+
+
+init : Model String
+init =
+    { inputString = "(a b b c)"
+    , convert = schemeString
+    , matcherString = "(a ( ?? b ) c)"
+    }
+
+
+type Action
+    = Input String
+    | InputM String
+
+
+update : Action -> Model a -> ( Model a, Cmd msg )
+update action model =
+    case action of
+        Input s ->
+            { model | inputString = s } ! []
+
+        InputM s ->
+            { model | matcherString = s } ! []
+
+
+view : Model String -> Html.Html Action
+view model =
+    let
+        input =
+            Html.input [ onInput Input, value model.inputString ] []
+
+        match =
+            Html.input [ onInput InputM, value model.matcherString ] []
+
+        matcherParse =
+            Html.div []
+                [ model.matcherString
+                    |> schemeString
+                    |> toString
+                    |> (++) "using : "
+                    |> text
+                ]
+
+        matcher =
+            model.matcherString |> schemeString |> treeToMatcher
+
+        output =
+            model.convert model.inputString
+                |> viewMatch matcher
+
+        viewMatch matcher data =
+            matcher Dict.empty printSuccess data
+                |> Maybe.withDefault ("no match for " ++ (data |> toString))
+                |> (\s -> div [] [ text s ])
+    in
+        div [] [ input, match, output, matcherParse ]
+
+
+type alias Model a =
+    { inputString : String
+    , matcherString : String
+    , convert : a -> Tree a
+    }
 
 
 schemeString : String -> Tree String
@@ -64,7 +139,7 @@ stringToData s =
 
 exampleMatcher : Matcher String String
 exampleMatcher =
-    listMatcher [ exactMatcher "a", exactMatcher "b", exactMatcher "c" ]
+    listMatcher [ exactMatcher "a", segmentMatcher "b", exactMatcher "c" ]
 
 
 {-| CFG can't handle this
@@ -87,7 +162,7 @@ exampleMatcher3 =
 
 printSuccess : Succeed a String
 printSuccess a b =
-    Just (toString ( a, b ))
+    Just ("first match bound: " ++ (toString a))
 
 
 failToDebug : Succeed a String
@@ -262,7 +337,7 @@ schemeToTree convert input =
                 |> String.dropLeft 1
                 |> String.dropRight 1
                 |> String.trim
-                |> String.split " "
+                |> splitParen
                 |> List.filter ((/=) "")
 
         cleanup xs =
@@ -277,6 +352,73 @@ schemeToTree convert input =
                 |> Maybe.map Branch
         else
             convert input |> Maybe.map Node
+
+
+test : List String
+test =
+    splitParen "a ( b ) c" |> Debug.log "testparen"
+
+
+{-| Parses "a ( b c ) d" into ["a", "( b c )", "d"]. Seems too complicated.
+-}
+splitParen : String -> List String
+splitParen string =
+    let
+        tokens =
+            String.split " " string
+
+        ( openParen, closeParen ) =
+            ( "(", ")" )
+
+        f parenDepth n soFar toGo =
+            case toGo of
+                token :: restToGo ->
+                    if (parenDepth == 0) && (token /= openParen) then
+                        ( String.join " " (soFar ++ [ token ]), n + 1 )
+                    else if token == openParen then
+                        f (parenDepth + 1) (n + 1) soFar restToGo
+                    else if token == closeParen then
+                        if parenDepth == 1 then
+                            ( String.join " " ("(" :: soFar ++ [ ")" ]), n + 1 )
+                        else
+                            f (parenDepth - 1) (n + 1) soFar restToGo
+                    else
+                        f parenDepth (n + 1) (soFar ++ [ token ]) restToGo
+
+                [] ->
+                    ( String.join " " soFar, n )
+
+        runner soFar toGo =
+            let
+                ( parsed, n ) =
+                    f 0 0 [] toGo
+
+                restToGo =
+                    List.drop n toGo
+            in
+                if List.isEmpty restToGo then
+                    (soFar ++ [ parsed ])
+                else
+                    runner (soFar ++ [ parsed ]) restToGo
+    in
+        runner [] tokens
+
+
+{-| -}
+treeToMatcher : Tree String -> Matcher String String
+treeToMatcher parseTree =
+    case parseTree of
+        Node x ->
+            exactMatcher x
+
+        Branch ((Node "?") :: (Node s) :: []) ->
+            elementMatcher s
+
+        Branch ((Node "??") :: (Node s) :: []) ->
+            segmentMatcher (s |> Debug.log "segmentMatcher")
+
+        Branch xs ->
+            xs |> List.map treeToMatcher |> listMatcher
 
 
 allJust : List (Maybe b) -> Maybe (List b)

@@ -34,26 +34,14 @@ examples =
     , ( "( 2 ( 1 2 3 ) )", "(( ? a ) ( 1 ( ?:choice 1 ( ? a ) ) 3 ) )" )
     , ( "( z )", "( ( ?:choice a b ( ? x ) c ) )" )
     , ( "( 1 ( 1 2 3 ) )", "(( ?:positive a ) ( ?? x ) )" )
-    , ( "( 1 ( 2 ( ) ) )", plet )
-    , ( "( a )", pletSimple )
+    , ( "( 1 ( 2 ( ) ) )", pletEvenOdd )
+    , ( "( a )", "( ?:pletrec ( ( p ( a ) ) ) ( ?:ref p ) )" )
     ]
 
 
-pletSimple : String
-pletSimple =
-    "( ?:pletrec ( ( p a ) ) ( ?:ref p ) )"
-
-
-plet : String
-plet =
+pletEvenOdd : String
+pletEvenOdd =
     """( ?:pletrec ( ( odd-even-etc ( ?:choice ( ) ( 1 ( ?:ref even-odd-etc ) ) ) )
-                 ( even-odd-etc ( ?:choice ( ) ( 2 ( ?:ref odd-even-etc ) ) ) ) )
-     ( ?:ref odd-even-etc ) )""" |> String.filter (\c -> c /= '\n')
-
-
-plet2 : String
-plet2 =
-    """( ?:pletrec ( ( odd-even-etc ( ?:choice ( ) ( 1 2 ) ) )
                  ( even-odd-etc ( ?:choice ( ) ( 2 ( ?:ref odd-even-etc ) ) ) ) )
      ( ?:ref odd-even-etc ) )""" |> String.filter (\c -> c /= '\n')
 
@@ -237,19 +225,15 @@ elementMatcher =
 -}
 exactMatcher : Data a -> Matcher a b
 exactMatcher x env succeed data =
-    let
-        _ =
-            Debug.log "x,data" ( x, data )
-    in
-        case data of
-            Branch (y :: _) ->
-                if x == y then
-                    succeed env 1
-                else
-                    Nothing
-
-            _ ->
+    case data of
+        Branch (y :: _) ->
+            if x == y then
+                succeed env 1
+            else
                 Nothing
+
+        _ ->
+            Nothing
 
 
 choiceMatcher : List (Matcher a b) -> Matcher a b
@@ -308,9 +292,6 @@ nullMatcher env succeed data =
 referenceMatcher : Symbol -> Matcher a b
 referenceMatcher reference env succeed data =
     let
-        _ =
-            Debug.log "referenceMatcher" reference
-
         matcher =
             envGetPattern reference env |> Maybe.withDefault nullMatcher
     in
@@ -447,9 +428,9 @@ addDefinition definition (Env env) =
         Branch ((Node name) :: pattern :: []) ->
             let
                 matcher =
-                    pattern |> Debug.log "pattern" |> treeToMatcher
+                    pattern |> treeToMatcher
             in
-                Env { env | patternDict = Dict.insert name matcher env.patternDict } |> Debug.log "added def"
+                Env { env | patternDict = Dict.insert name matcher env.patternDict }
 
         _ ->
             Env env
@@ -625,8 +606,10 @@ intro : Html.Html msg
 intro =
     """Enter input text and pattern.
     Use scheme style, with space around inner parentheses.
-    Click on an example from the list to load it. Available operators are:
-      ? ?? ?:choice ?:int ?:positive.
+    Click on an example from the list to load it.
+    Available operators are: ? ?? ?:choice ?:ref:.
+    There are two operators for restricted element matching: ?:int ?:positive.
+    Define a pattern for later use with ?:pletrec. Pattern names are scoped.
   """ |> (\x -> div [] [ x |> text ])
 
 

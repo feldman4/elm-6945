@@ -1,10 +1,10 @@
 module Match exposing (..)
 
-import Html exposing (text, div)
-import Html.Events exposing (onInput)
-import Html.Attributes exposing (value)
 import Dict exposing (Dict)
-import String exposing (startsWith, endsWith, split)
+import Html exposing (br, div, li, text, ul)
+import Html.Attributes exposing (size, style, type_, value)
+import Html.Events exposing (onClick, onInput)
+import String exposing (endsWith, split, startsWith)
 
 
 -- why are we using functions as combinators, rather than representing them with
@@ -18,94 +18,18 @@ import String exposing (startsWith, endsWith, split)
 -- but not on constructors stored in variables - is this true in Haskell?
 
 
-main2 : Html.Html msg
-main2 =
-    let
-        viewMatch matcher data =
-            matcher Dict.empty failToDebug data
-                |> Maybe.withDefault ("no match for " ++ (data |> toString))
-                |> (\s -> div [] [ text s ])
-    in
-        [ ( exampleMatcher, stringToData "abc" )
-          -- , ( exampleMatcher2, stringToData "abbbbca" )
-          -- , ( exampleMatcher2, schemeString "(a (c d) a)" )
-          -- ,
-        ]
-            |> List.map (\( a, b ) -> viewMatch a b)
-            |> div []
-
-
-main : Program Never (Model String) Action
-main =
-    Html.program
-        { init = init ! []
-        , update = update
-        , view = view
-        , subscriptions = (\_ -> Sub.batch [])
-        }
-
-
-init : Model String
-init =
-    { inputString = "(a b b c)"
-    , convert = schemeString
-    , matcherString = "(a ( ?? b ) c)"
-    }
-
-
-type Action
-    = Input String
-    | InputM String
-
-
-update : Action -> Model a -> ( Model a, Cmd msg )
-update action model =
-    case action of
-        Input s ->
-            { model | inputString = s } ! []
-
-        InputM s ->
-            { model | matcherString = s } ! []
-
-
-view : Model String -> Html.Html Action
-view model =
-    let
-        input =
-            Html.input [ onInput Input, value model.inputString ] []
-
-        match =
-            Html.input [ onInput InputM, value model.matcherString ] []
-
-        matcherParse =
-            Html.div []
-                [ model.matcherString
-                    |> schemeString
-                    |> toString
-                    |> (++) "using : "
-                    |> text
-                ]
-
-        matcher =
-            model.matcherString |> schemeString |> treeToMatcher
-
-        output =
-            model.convert model.inputString
-                |> viewMatch matcher
-
-        viewMatch matcher data =
-            matcher Dict.empty printSuccess data
-                |> Maybe.withDefault ("no match for " ++ (data |> toString))
-                |> (\s -> div [] [ text s ])
-    in
-        div [] [ input, match, output, matcherParse ]
-
-
-type alias Model a =
-    { inputString : String
-    , matcherString : String
-    , convert : a -> Tree a
-    }
+{-| it would be nice to use the same function to compose the data and
+the pattern, as in Haskell/Elm case pattern matching
+-}
+examples : List ( String, String )
+examples =
+    [ ( "( ( a ( 1 2 3 ) ) )", "(( ? a ) ( 1 2 3 ) )" )
+    , ( "( ( a ( 1 2 3 ) ) )", "(( ? a ) ( 1 2 ( ?:choice 3 ) ) )" )
+    , ( "( ( a ( 1 2 3 ) c ) )", "(a ( ( ? b ) 2 3 ) c)" )
+    , ( "( ( a ( 1 2 3 ) c ) )", "(a ( 1 ( ?? b )  ) c)" )
+      -- CFG can't handle this
+    , ( "( ( a b b b b b a ) )", "( ( ? A ) ( ?? x ) ( ?? y ) ( ?? x ) ( ? A ))" )
+    ]
 
 
 schemeString : String -> Tree String
@@ -119,45 +43,8 @@ schemeString s =
             |> Maybe.withDefault invalid
 
 
-exampleData : Tree number
-exampleData =
-    Branch [ Node 3, Node 4, Node 7 ]
 
-
-stringToData : String -> Tree Symbol
-stringToData s =
-    s
-        |> String.split ""
-        |> List.map Node
-        |> Branch
-
-
-
--- sort of nice when you can use the same function to compose the data and
--- the pattern
-
-
-exampleMatcher : Matcher String String
-exampleMatcher =
-    listMatcher [ exactMatcher "a", segmentMatcher "b", exactMatcher "c" ]
-
-
-{-| CFG can't handle this
--}
-exampleMatcher2 : Matcher Symbol String
-exampleMatcher2 =
-    listMatcher
-        [ elementMatcher "A"
-        , segmentMatcher "x"
-        , segmentMatcher "y"
-        , segmentMatcher "x"
-        , elementMatcher "A"
-        ]
-
-
-exampleMatcher3 : Matcher String String
-exampleMatcher3 =
-    listMatcher [ segmentMatcher "x" ]
+-- SUCCESS
 
 
 printSuccess : Succeed a String
@@ -190,8 +77,6 @@ type alias Data a =
     Tree a
 
 
-{-| Node tags data, Branch tags a list of Nodes or Branches
--}
 type Tree a
     = Branch (List (Tree a))
     | Node a
@@ -205,12 +90,16 @@ type alias Succeed a b =
     Dict Symbol (Data a) -> Eaten -> Maybe b
 
 
+
+--MATCHERS
+
+
 listMatcher : List (Matcher comparable String) -> Matcher comparable String
 listMatcher matchers dict succeed data =
     case ( matchers, data ) of
-        -- this is OK, pass on 0?
-        ( [], Branch [] ) ->
-            succeed dict 0
+        -- we matched the whole list! pass on 1 list eaten
+        ( [], Branch ((Branch []) :: _) ) ->
+            succeed dict 1
 
         ( _, Branch [] ) ->
             Nothing
@@ -222,18 +111,24 @@ listMatcher matchers dict succeed data =
         ( _, Node x ) ->
             Nothing
 
-        ( matcher :: restOfMatchers, Branch xs ) ->
+        ( _, Branch ((Node x) :: _) ) ->
+            Nothing
+
+        ( matcher :: restOfMatchers, Branch ((Branch xs) :: outerRest) ) ->
             let
                 -- here is where signaling the number of items consumed is useful
                 -- could we have a combinator that matches segments without this?
                 succeed2 dict2 n =
                     let
                         trueRestOfData =
-                            List.drop n xs
+                            List.drop n xs |> Branch
+
+                        anotherRest =
+                            Branch (trueRestOfData :: outerRest)
                     in
-                        listMatcher restOfMatchers dict2 succeed (Branch trueRestOfData)
+                        listMatcher restOfMatchers dict2 succeed anotherRest
             in
-                matcher dict succeed2 data
+                matcher dict succeed2 (Branch xs)
 
 
 segmentMatcher : Symbol -> Matcher comparable String
@@ -303,22 +198,38 @@ elementMatcher s dict succeed data =
 
 {-| Node tags the data itself.
 -}
-exactMatcher : a -> Matcher a b
+exactMatcher : Data a -> Matcher a b
 exactMatcher x dict succeed data =
     case data of
         Branch (y :: _) ->
-            case y of
-                Node z ->
-                    if x == z then
-                        succeed dict 1
-                    else
-                        Nothing
-
-                Branch _ ->
-                    Nothing
+            if x == y then
+                succeed dict 1
+            else
+                Nothing
 
         _ ->
             Nothing
+
+
+{-| Alternative to list matcher.
+-}
+choiceMatcher : List (Matcher a b) -> Matcher a b
+choiceMatcher choices dict succeed data =
+    case ( choices, data ) of
+        ( choice :: rest, Branch (y :: _) ) ->
+            case choice dict succeed (Branch [ y ]) of
+                Just x ->
+                    Just x
+
+                Nothing ->
+                    choiceMatcher rest dict succeed data
+
+        _ ->
+            Nothing
+
+
+
+-- CONVERSION
 
 
 {-| (a) => Branch [Node a]
@@ -354,12 +265,8 @@ schemeToTree convert input =
             convert input |> Maybe.map Node
 
 
-test : List String
-test =
-    splitParen "a ( b ) c" |> Debug.log "testparen"
-
-
 {-| Parses "a ( b c ) d" into ["a", "( b c )", "d"]. Seems too complicated.
+And it still doesn't deal with "a (b c) d".
 -}
 splitParen : String -> List String
 splitParen string =
@@ -376,12 +283,15 @@ splitParen string =
                     if (parenDepth == 0) && (token /= openParen) then
                         ( String.join " " (soFar ++ [ token ]), n + 1 )
                     else if token == openParen then
-                        f (parenDepth + 1) (n + 1) soFar restToGo
+                        if parenDepth == 0 then
+                            f (parenDepth + 1) (n + 1) soFar restToGo
+                        else
+                            f (parenDepth + 1) (n + 1) (soFar ++ [ token ]) restToGo
                     else if token == closeParen then
                         if parenDepth == 1 then
                             ( String.join " " ("(" :: soFar ++ [ ")" ]), n + 1 )
                         else
-                            f (parenDepth - 1) (n + 1) soFar restToGo
+                            f (parenDepth - 1) (n + 1) (soFar ++ [ token ]) restToGo
                     else
                         f parenDepth (n + 1) (soFar ++ [ token ]) restToGo
 
@@ -409,13 +319,16 @@ treeToMatcher : Tree String -> Matcher String String
 treeToMatcher parseTree =
     case parseTree of
         Node x ->
-            exactMatcher x
+            exactMatcher parseTree
 
         Branch ((Node "?") :: (Node s) :: []) ->
             elementMatcher s
 
         Branch ((Node "??") :: (Node s) :: []) ->
-            segmentMatcher (s |> Debug.log "segmentMatcher")
+            segmentMatcher s
+
+        Branch ((Node "?:choice") :: choices) ->
+            choices |> List.map treeToMatcher |> choiceMatcher
 
         Branch xs ->
             xs |> List.map treeToMatcher |> listMatcher
@@ -433,11 +346,113 @@ allJust xs =
             Nothing
 
 
-insertNoReplace : comparable -> v -> Dict comparable v -> Maybe (Dict comparable v)
-insertNoReplace k v dict =
-    case Dict.get k dict of
-        Just x ->
-            Nothing
 
-        Nothing ->
-            Just (Dict.insert k v dict)
+-- APP
+
+
+main : Program Never (Model String) Action
+main =
+    Html.program
+        { init = init ! []
+        , update = update
+        , view = view
+        , subscriptions = (\_ -> Sub.batch [])
+        }
+
+
+init : Model String
+init =
+    { inputString = "( ( a ( 1 2 3 ) ) )"
+    , convert = schemeString
+    , matcherString = "(( ? a ) ( 1 2 3 ) )"
+    , consoleSucceed = False
+    }
+
+
+type Action
+    = Input String
+    | InputM String
+    | Example ( String, String )
+    | ConsoleSucceed
+
+
+update : Action -> Model a -> ( Model a, Cmd msg )
+update action model =
+    case action of
+        Input s ->
+            { model | inputString = s } ! []
+
+        InputM s ->
+            { model | matcherString = s } ! []
+
+        Example ( a, b ) ->
+            { model | inputString = a, matcherString = b } ! []
+
+        ConsoleSucceed ->
+            { model | consoleSucceed = not model.consoleSucceed } ! []
+
+
+view : Model String -> Html.Html Action
+view model =
+    let
+        input =
+            Html.input [ onInput Input, value model.inputString, size 40 ] []
+                |> (\x -> div [] [ x ])
+
+        match =
+            Html.input [ onInput InputM, value model.matcherString, size 40 ] []
+                |> (\x -> div [] [ x ])
+
+        matcherParse =
+            Html.div []
+                [ model.matcherString
+                    |> schemeString
+                    |> toString
+                    |> (++) "using : "
+                    |> text
+                ]
+
+        matcher =
+            model.matcherString |> schemeString |> treeToMatcher
+
+        output =
+            model.convert model.inputString
+                |> viewMatch matcher
+
+        success =
+            if model.consoleSucceed then
+                failToDebug
+            else
+                printSuccess
+
+        viewMatch matcher data =
+            matcher Dict.empty success data
+                |> Maybe.withDefault ("no match for " ++ (data |> toString))
+                |> (\s -> div [] [ text s ])
+
+        exampleDivs =
+            examples
+                |> List.map (\x -> li [ onClick (Example x) ] [ x |> toString |> text ])
+                |> ul []
+                |> (\x -> div [] [ br [] [], "click on example to load:" |> text, x ])
+
+        consoleSucceed =
+            div [] [ text "always fail, printing matches to browser console", Html.input [ type_ "checkbox", onClick ConsoleSucceed ] [] ]
+    in
+        div []
+            [ input
+            , match
+            , br [] []
+            , output
+            , matcherParse
+            , exampleDivs
+            , consoleSucceed
+            ]
+
+
+type alias Model a =
+    { inputString : String
+    , matcherString : String
+    , convert : a -> Tree a
+    , consoleSucceed : Bool
+    }

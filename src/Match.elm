@@ -12,6 +12,7 @@ import String exposing (endsWith, split, startsWith)
 -- conversion step, but makes the combination uninspectable. is adding a function
 -- that respects the combinator spec easier than adding a symbol and procedure?
 --
+-- symbols + naming = ???
 --
 -- also, how is pattern matching used for type-based dispatch? what is special
 -- about cons (::)? I think you can pattern match on your own cons-like functions
@@ -24,11 +25,14 @@ the pattern, as in Haskell/Elm case pattern matching
 examples : List ( String, String )
 examples =
     [ ( "( ( a ( 1 2 3 ) ) )", "(( ? a ) ( 1 2 3 ) )" )
-    , ( "( ( a ( 1 2 3 ) ) )", "(( ? a ) ( 1 2 ( ?:choice 3 ) ) )" )
     , ( "( ( a ( 1 2 3 ) c ) )", "(a ( ( ? b ) 2 3 ) c)" )
     , ( "( ( a ( 1 2 3 ) c ) )", "(a ( 1 ( ?? b )  ) c)" )
       -- CFG can't handle this
     , ( "( ( a b b b b b a ) )", "( ( ? A ) ( ?? x ) ( ?? y ) ( ?? x ) ( ? A ))" )
+      -- choice
+    , ( "( ( 2 ( 1 2 3 ) ) )", "(( ? a ) ( 1 ( ?:choice 1 ( ? a ) ) 3 ) )" )
+    , ( "( ( z ) )", "( ( ?:choice a b ( ? x ) c ) )" )
+    , ( "( ( 1 ( 1 2 3 ) ) )", "(( ?:positive a ) ( ?? x ) )" )
     ]
 
 
@@ -77,29 +81,44 @@ type alias Data a =
     Tree a
 
 
+{-| Initially this type was just Dict Symbol (Data a). I extended it for
+pattern naming. This caused Matcher, which was a simple type alias, to have a
+recursive type definition. Solving that required creating the Matcher_T type
+and the Matcher_ type constructor.
+-}
+type alias Env a b =
+    { dict : Dict Symbol (Data a)
+    , patternDict : Dict Symbol (Matcher_T a b)
+    }
+
+
 type Tree a
     = Branch (List (Tree a))
     | Node a
 
 
+type Matcher_T a b
+    = Matcher_ (Matcher a b)
+
+
 type alias Matcher a b =
-    Dict Symbol (Data a) -> Succeed a b -> Data a -> Maybe b
+    Env a b -> Succeed a b -> Data a -> Maybe b
 
 
 type alias Succeed a b =
-    Dict Symbol (Data a) -> Eaten -> Maybe b
+    Env a b -> Eaten -> Maybe b
 
 
 
 --MATCHERS
 
 
-listMatcher : List (Matcher comparable String) -> Matcher comparable String
-listMatcher matchers dict succeed data =
+listMatcher : List (Matcher_T a b) -> Matcher a b
+listMatcher matchers env succeed data =
     case ( matchers, data ) of
         -- we matched the whole list! pass on 1 list eaten
         ( [], Branch ((Branch []) :: _) ) ->
-            succeed dict 1
+            succeed env 1
 
         ( _, Branch [] ) ->
             Nothing
@@ -114,7 +133,7 @@ listMatcher matchers dict succeed data =
         ( _, Branch ((Node x) :: _) ) ->
             Nothing
 
-        ( matcher :: restOfMatchers, Branch ((Branch xs) :: outerRest) ) ->
+        ( (Matcher_ matcher) :: restOfMatchers, Branch ((Branch xs) :: outerRest) ) ->
             let
                 -- here is where signaling the number of items consumed is useful
                 -- could we have a combinator that matches segments without this?
@@ -128,11 +147,11 @@ listMatcher matchers dict succeed data =
                     in
                         listMatcher restOfMatchers dict2 succeed anotherRest
             in
-                matcher dict succeed2 (Branch xs)
+                matcher env succeed2 (Branch xs)
 
 
 segmentMatcher : Symbol -> Matcher comparable String
-segmentMatcher s dict succeed data =
+segmentMatcher s env succeed data =
     let
         -- new symbol encountered. make the shortest match and succeed. if that
         -- fails, succeed on longer matches until one works or we run out of data.
@@ -140,10 +159,10 @@ segmentMatcher s dict succeed data =
             let
                 munchOn n =
                     let
-                        dict2 =
-                            Dict.insert s (Branch (List.take n xs)) dict
+                        env2 =
+                            { env | dict = Dict.insert s (Branch (List.take n xs)) env.dict }
                     in
-                        case succeed dict2 n of
+                        case succeed env2 n of
                             Just whatever ->
                                 Just whatever
 
@@ -160,11 +179,11 @@ segmentMatcher s dict succeed data =
                 Nothing
 
             Branch xs ->
-                case Dict.get s dict of
+                case Dict.get s env.dict of
                     -- we've already matched this
                     Just (Branch ys) ->
                         if List.take (List.length ys) xs == ys then
-                            succeed dict (List.length ys)
+                            succeed env (List.length ys)
                         else
                             Nothing
 
@@ -175,8 +194,49 @@ segmentMatcher s dict succeed data =
                         eat xs
 
 
-elementMatcher : Symbol -> Matcher comparable String
-elementMatcher s dict succeed data =
+elementMatcher : Symbol -> Matcher a b
+elementMatcher =
+    restrictedElementMatcher (\_ -> True)
+
+
+{-| Node tags the data itself.
+-}
+exactMatcher : Data a -> Matcher a b
+exactMatcher x env succeed data =
+    case data of
+        Branch (y :: _) ->
+            if x == y then
+                succeed env 1
+            else
+                Nothing
+
+        _ ->
+            Nothing
+
+
+
+-- {-| Alternative to list matcher.
+-- -}
+-- choiceMatcher : List (Matcher_ a b) -> Matcher_ a b
+
+
+choiceMatcher : List (Matcher_T a b) -> Matcher a b
+choiceMatcher choices env succeed data =
+    case ( choices, data ) of
+        ( (Matcher_ choice) :: rest, Branch (y :: _) ) ->
+            case choice env succeed (Branch [ y ]) of
+                Just x ->
+                    Just x
+
+                Nothing ->
+                    choiceMatcher rest env succeed data
+
+        _ ->
+            Nothing
+
+
+restrictedElementMatcher : (Data a -> Bool) -> Symbol -> Matcher a b
+restrictedElementMatcher restriction s env succeed data =
     case data of
         Node _ ->
             Nothing
@@ -185,47 +245,22 @@ elementMatcher s dict succeed data =
             Nothing
 
         Branch (y :: _) ->
-            case Dict.get s dict of
-                Nothing ->
-                    succeed (Dict.insert s y dict) 1
+            if restriction y then
+                case Dict.get s env.dict of
+                    Nothing ->
+                        let
+                            env2 =
+                                { env | dict = (Dict.insert s y env.dict) }
+                        in
+                            succeed env2 1
 
-                Just x ->
-                    if x == y then
-                        succeed dict 1
-                    else
-                        Nothing
-
-
-{-| Node tags the data itself.
--}
-exactMatcher : Data a -> Matcher a b
-exactMatcher x dict succeed data =
-    case data of
-        Branch (y :: _) ->
-            if x == y then
-                succeed dict 1
+                    Just x ->
+                        if x == y then
+                            succeed env 1
+                        else
+                            Nothing
             else
                 Nothing
-
-        _ ->
-            Nothing
-
-
-{-| Alternative to list matcher.
--}
-choiceMatcher : List (Matcher a b) -> Matcher a b
-choiceMatcher choices dict succeed data =
-    case ( choices, data ) of
-        ( choice :: rest, Branch (y :: _) ) ->
-            case choice dict succeed (Branch [ y ]) of
-                Just x ->
-                    Just x
-
-                Nothing ->
-                    choiceMatcher rest dict succeed data
-
-        _ ->
-            Nothing
 
 
 
@@ -314,10 +349,14 @@ splitParen string =
         runner [] tokens
 
 
-{-| -}
-treeToMatcher : Tree String -> Matcher String String
+
+-- treeToMatcher : Tree String -> Matcher_ String String
+-- treeToMatcher : Tree String -> Matcher_T String b
+
+
+treeToMatcher : Tree String -> Matcher_T String String
 treeToMatcher parseTree =
-    case parseTree of
+    (case parseTree of
         Node x ->
             exactMatcher parseTree
 
@@ -330,8 +369,16 @@ treeToMatcher parseTree =
         Branch ((Node "?:choice") :: choices) ->
             choices |> List.map treeToMatcher |> choiceMatcher
 
+        Branch ((Node "?:int") :: (Node s) :: []) ->
+            restrictedElementMatcher isInt s
+
+        Branch ((Node "?:positive") :: (Node s) :: []) ->
+            restrictedElementMatcher isPositive s
+
         Branch xs ->
             xs |> List.map treeToMatcher |> listMatcher
+    )
+        |> Matcher_
 
 
 allJust : List (Maybe b) -> Maybe (List b)
@@ -344,6 +391,41 @@ allJust xs =
             Just xs_
         else
             Nothing
+
+
+isPositive : Tree String -> Bool
+isPositive data =
+    case data of
+        Node x ->
+            case String.toFloat x of
+                Ok val ->
+                    val > 0
+
+                _ ->
+                    False
+
+        _ ->
+            False
+
+
+isInt : Tree String -> Bool
+isInt data =
+    case data of
+        Node x ->
+            x |> String.toInt |> isOk
+
+        _ ->
+            False
+
+
+isOk : Result error value -> Bool
+isOk result =
+    case result of
+        Ok _ ->
+            True
+
+        Err _ ->
+            False
 
 
 
@@ -413,7 +495,10 @@ view model =
                 ]
 
         matcher =
-            model.matcherString |> schemeString |> treeToMatcher
+            model.matcherString
+                |> schemeString
+                |> treeToMatcher
+                |> (\(Matcher_ m) -> m)
 
         output =
             model.convert model.inputString
@@ -425,22 +510,33 @@ view model =
             else
                 printSuccess
 
+        emptyEnv =
+            { dict = Dict.empty, patternDict = Dict.empty }
+
         viewMatch matcher data =
-            matcher Dict.empty success data
+            matcher emptyEnv success data
                 |> Maybe.withDefault ("no match for " ++ (data |> toString))
                 |> (\s -> div [] [ text s ])
 
+        exampleString ( a, b ) =
+            [ "input: ", a, " pattern: ", b ] |> String.join ""
+
         exampleDivs =
             examples
-                |> List.map (\x -> li [ onClick (Example x) ] [ x |> toString |> text ])
+                |> List.map (\x -> li [ onClick (Example x) ] [ x |> exampleString |> text ])
                 |> ul []
-                |> (\x -> div [] [ br [] [], "click on example to load:" |> text, x ])
+                |> (\x -> div [] [ x ])
 
         consoleSucceed =
-            div [] [ text "always fail, printing matches to browser console", Html.input [ type_ "checkbox", onClick ConsoleSucceed ] [] ]
+            div []
+                [ Html.input [ type_ "checkbox", onClick ConsoleSucceed ] []
+                , text "always fail, printing all matches to browser console"
+                ]
     in
         div []
-            [ input
+            [ intro
+            , br [] []
+            , input
             , match
             , br [] []
             , output
@@ -448,6 +544,15 @@ view model =
             , exampleDivs
             , consoleSucceed
             ]
+
+
+intro : Html.Html msg
+intro =
+    """Enter input text and pattern.
+    You have to write in scheme style, with space around inner parentheses.
+    Click on an example from the list to load it. Available operators are:
+      ? ?? ?:choice ?:int ?:positive.
+  """ |> (\x -> div [] [ x |> text ])
 
 
 type alias Model a =

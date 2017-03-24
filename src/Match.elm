@@ -7,18 +7,6 @@ import Html.Events exposing (onClick, onInput)
 import String exposing (endsWith, split, startsWith)
 
 
--- why are we using functions as combinators, rather than representing them with
--- symbols and compiling to function afterwards? it might save the final
--- conversion step, but makes the combination uninspectable. is adding a function
--- that respects the combinator spec easier than adding a symbol and procedure?
---
--- symbols + naming = ???
---
--- also, how is pattern matching used for type-based dispatch? what is special
--- about cons (::)? I think you can pattern match on your own cons-like functions
--- but not on constructors stored in variables - is this true in Haskell?
-
-
 {-| it would be nice to use the same function to compose the data and
 the pattern, as in Haskell/Elm case pattern matching
 -}
@@ -44,17 +32,6 @@ pletEvenOdd =
     """( ?:pletrec ( ( odd-even-etc ( ?:choice ( ) ( 1 ( ?:ref even-odd-etc ) ) ) )
                  ( even-odd-etc ( ?:choice ( ) ( 2 ( ?:ref odd-even-etc ) ) ) ) )
      ( ?:ref odd-even-etc ) )""" |> String.filter (\c -> c /= '\n')
-
-
-schemeString : String -> Tree String
-schemeString s =
-    let
-        invalid =
-            Branch [ Node "invalid" ]
-    in
-        s
-            |> schemeToTree (\x -> Just x)
-            |> Maybe.withDefault invalid
 
 
 
@@ -302,6 +279,17 @@ referenceMatcher reference env succeed data =
 -- CONVERSION
 
 
+schemeString : String -> Tree String
+schemeString s =
+    let
+        invalid =
+            Branch [ Node "invalid" ]
+    in
+        s
+            |> schemeToTree (\x -> Just x)
+            |> Maybe.withDefault invalid
+
+
 {-| (a) => Branch [Node a]
 -}
 schemeToTree : (String -> Maybe a) -> String -> Maybe (Tree a)
@@ -506,13 +494,6 @@ init =
     }
 
 
-type Action
-    = Input String
-    | InputM String
-    | Example ( String, String )
-    | ConsoleSucceed
-
-
 update : Action -> Model a -> ( Model a, Cmd msg )
 update action model =
     case action of
@@ -611,6 +592,13 @@ intro =
     There are two operators for restricted element matching: ?:int ?:positive.
     Define a pattern for later use with ?:pletrec. Pattern names are scoped.
   """ |> (\x -> div [] [ x |> text ])
+
+
+type Action
+    = Input String
+    | InputM String
+    | Example ( String, String )
+    | ConsoleSucceed
 
 
 type alias Model a =

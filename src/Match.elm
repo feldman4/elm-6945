@@ -82,23 +82,20 @@ type alias Data a =
 
 
 {-| Initially this type was just Dict Symbol (Data a). I extended it for
-pattern naming. This caused Matcher, which was a simple type alias, to have a
-recursive type definition. Solving that required creating the Matcher_T type
-and the Matcher_ type constructor.
+pattern naming. The patternDict field refers to Matcher, so an Env type was
+needed to break the type alias recursion. This extra layer is hidden by accessor
+and updater functions like envGet and envInsert.
 -}
-type alias Env a b =
-    { dict : Dict Symbol (Data a)
-    , patternDict : Dict Symbol (Matcher_T a b)
-    }
+type Env a b
+    = Env
+        { dict : Dict Symbol (Data a)
+        , patternDict : Dict Symbol (Matcher a b)
+        }
 
 
 type Tree a
     = Branch (List (Tree a))
     | Node a
-
-
-type Matcher_T a b
-    = Matcher_ (Matcher a b)
 
 
 type alias Matcher a b =
@@ -113,7 +110,7 @@ type alias Succeed a b =
 --MATCHERS
 
 
-listMatcher : List (Matcher_T a b) -> Matcher a b
+listMatcher : List (Matcher a b) -> Matcher a b
 listMatcher matchers env succeed data =
     case ( matchers, data ) of
         -- we matched the whole list! pass on 1 list eaten
@@ -133,7 +130,7 @@ listMatcher matchers env succeed data =
         ( _, Branch ((Node x) :: _) ) ->
             Nothing
 
-        ( (Matcher_ matcher) :: restOfMatchers, Branch ((Branch xs) :: outerRest) ) ->
+        ( matcher :: restOfMatchers, Branch ((Branch xs) :: outerRest) ) ->
             let
                 -- here is where signaling the number of items consumed is useful
                 -- could we have a combinator that matches segments without this?
@@ -150,6 +147,20 @@ listMatcher matchers env succeed data =
                 matcher env succeed2 (Branch xs)
 
 
+envGet : String -> Env a b -> Maybe (Data a)
+envGet key env =
+    case env of
+        Env env_ ->
+            Dict.get key env_.dict
+
+
+envInsert : String -> Data a -> Env a b -> Env a b
+envInsert key value env =
+    case env of
+        Env env_ ->
+            Env { env_ | dict = Dict.insert key value env_.dict }
+
+
 segmentMatcher : Symbol -> Matcher comparable String
 segmentMatcher s env succeed data =
     let
@@ -160,7 +171,7 @@ segmentMatcher s env succeed data =
                 munchOn n =
                     let
                         env2 =
-                            { env | dict = Dict.insert s (Branch (List.take n xs)) env.dict }
+                            envInsert s (Branch (List.take n xs)) env
                     in
                         case succeed env2 n of
                             Just whatever ->
@@ -179,7 +190,7 @@ segmentMatcher s env succeed data =
                 Nothing
 
             Branch xs ->
-                case Dict.get s env.dict of
+                case envGet s env of
                     -- we've already matched this
                     Just (Branch ys) ->
                         if List.take (List.length ys) xs == ys then
@@ -220,10 +231,10 @@ exactMatcher x env succeed data =
 -- choiceMatcher : List (Matcher_ a b) -> Matcher_ a b
 
 
-choiceMatcher : List (Matcher_T a b) -> Matcher a b
+choiceMatcher : List (Matcher a b) -> Matcher a b
 choiceMatcher choices env succeed data =
     case ( choices, data ) of
-        ( (Matcher_ choice) :: rest, Branch (y :: _) ) ->
+        ( choice :: rest, Branch (y :: _) ) ->
             case choice env succeed (Branch [ y ]) of
                 Just x ->
                     Just x
@@ -246,11 +257,11 @@ restrictedElementMatcher restriction s env succeed data =
 
         Branch (y :: _) ->
             if restriction y then
-                case Dict.get s env.dict of
+                case envGet s env of
                     Nothing ->
                         let
                             env2 =
-                                { env | dict = (Dict.insert s y env.dict) }
+                                envInsert s y env
                         in
                             succeed env2 1
 
@@ -354,9 +365,9 @@ splitParen string =
 -- treeToMatcher : Tree String -> Matcher_T String b
 
 
-treeToMatcher : Tree String -> Matcher_T String String
+treeToMatcher : Tree String -> Matcher String String
 treeToMatcher parseTree =
-    (case parseTree of
+    case parseTree of
         Node x ->
             exactMatcher parseTree
 
@@ -377,8 +388,6 @@ treeToMatcher parseTree =
 
         Branch xs ->
             xs |> List.map treeToMatcher |> listMatcher
-    )
-        |> Matcher_
 
 
 allJust : List (Maybe b) -> Maybe (List b)
@@ -498,7 +507,6 @@ view model =
             model.matcherString
                 |> schemeString
                 |> treeToMatcher
-                |> (\(Matcher_ m) -> m)
 
         output =
             model.convert model.inputString
@@ -511,7 +519,7 @@ view model =
                 printSuccess
 
         emptyEnv =
-            { dict = Dict.empty, patternDict = Dict.empty }
+            Env { dict = Dict.empty, patternDict = Dict.empty }
 
         viewMatch matcher data =
             matcher emptyEnv success data

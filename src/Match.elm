@@ -24,16 +24,38 @@ the pattern, as in Haskell/Elm case pattern matching
 -}
 examples : List ( String, String )
 examples =
-    [ ( "( ( a ( 1 2 3 ) ) )", "(( ? a ) ( 1 2 3 ) )" )
-    , ( "( ( a ( 1 2 3 ) c ) )", "(a ( ( ? b ) 2 3 ) c)" )
-    , ( "( ( a ( 1 2 3 ) c ) )", "(a ( 1 ( ?? b )  ) c)" )
+    [ ( "( ( ) )", "( ( ) )" )
+    , ( "( a ( 1 2 3 ) )", "(( ? a ) ( 1 2 3 ) )" )
+    , ( "( a ( 1 2 3 ) c )", "(a ( ( ? b ) 2 3 ) c)" )
+    , ( "( a ( 1 2 3 ) c )", "(a ( 1 ( ?? b )  ) c)" )
       -- CFG can't handle this
-    , ( "( ( a b b b b b a ) )", "( ( ? A ) ( ?? x ) ( ?? y ) ( ?? x ) ( ? A ))" )
+    , ( "( a b b b b b a )", "( ( ? A ) ( ?? x ) ( ?? y ) ( ?? x ) ( ? A ))" )
       -- choice
-    , ( "( ( 2 ( 1 2 3 ) ) )", "(( ? a ) ( 1 ( ?:choice 1 ( ? a ) ) 3 ) )" )
-    , ( "( ( z ) )", "( ( ?:choice a b ( ? x ) c ) )" )
-    , ( "( ( 1 ( 1 2 3 ) ) )", "(( ?:positive a ) ( ?? x ) )" )
+    , ( "( 2 ( 1 2 3 ) )", "(( ? a ) ( 1 ( ?:choice 1 ( ? a ) ) 3 ) )" )
+    , ( "( z )", "( ( ?:choice a b ( ? x ) c ) )" )
+    , ( "( 1 ( 1 2 3 ) )", "(( ?:positive a ) ( ?? x ) )" )
+    , ( "( 1 ( 2 ( ) ) )", plet )
+    , ( "( a )", pletSimple )
     ]
+
+
+pletSimple : String
+pletSimple =
+    "( ?:pletrec ( ( p a ) ) ( ?:ref p ) )"
+
+
+plet : String
+plet =
+    """( ?:pletrec ( ( odd-even-etc ( ?:choice ( ) ( 1 ( ?:ref even-odd-etc ) ) ) )
+                 ( even-odd-etc ( ?:choice ( ) ( 2 ( ?:ref odd-even-etc ) ) ) ) )
+     ( ?:ref odd-even-etc ) )""" |> String.filter (\c -> c /= '\n')
+
+
+plet2 : String
+plet2 =
+    """( ?:pletrec ( ( odd-even-etc ( ?:choice ( ) ( 1 2 ) ) )
+                 ( even-odd-etc ( ?:choice ( ) ( 2 ( ?:ref odd-even-etc ) ) ) ) )
+     ( ?:ref odd-even-etc ) )""" |> String.filter (\c -> c /= '\n')
 
 
 schemeString : String -> Tree String
@@ -52,8 +74,8 @@ schemeString s =
 
 
 printSuccess : Succeed a String
-printSuccess a b =
-    Just ("first match bound: " ++ (toString a))
+printSuccess (Env env) n =
+    Just ("first match bound: " ++ (toString env.dict))
 
 
 failToDebug : Succeed a String
@@ -84,7 +106,7 @@ type alias Data a =
 {-| Initially this type was just Dict Symbol (Data a). I extended it for
 pattern naming. The patternDict field refers to Matcher, so an Env type was
 needed to break the type alias recursion. This extra layer is hidden by accessor
-and updater functions like envGet and envInsert.
+and updater functions like envGetElement and envInsert.
 -}
 type Env a b
     = Env
@@ -147,18 +169,19 @@ listMatcher matchers env succeed data =
                 matcher env succeed2 (Branch xs)
 
 
-envGet : String -> Env a b -> Maybe (Data a)
-envGet key env =
-    case env of
-        Env env_ ->
-            Dict.get key env_.dict
+envGetPattern : String -> Env a b -> Maybe (Matcher a b)
+envGetPattern key (Env env) =
+    Dict.get key env.patternDict
 
 
-envInsert : String -> Data a -> Env a b -> Env a b
-envInsert key value env =
-    case env of
-        Env env_ ->
-            Env { env_ | dict = Dict.insert key value env_.dict }
+envGetElement : String -> Env a b -> Maybe (Data a)
+envGetElement key (Env env) =
+    Dict.get key env.dict
+
+
+envInsertElement : String -> Data a -> Env a b -> Env a b
+envInsertElement key value (Env env) =
+    Env { env | dict = Dict.insert key value env.dict }
 
 
 segmentMatcher : Symbol -> Matcher comparable String
@@ -171,7 +194,7 @@ segmentMatcher s env succeed data =
                 munchOn n =
                     let
                         env2 =
-                            envInsert s (Branch (List.take n xs)) env
+                            envInsertElement s (Branch (List.take n xs)) env
                     in
                         case succeed env2 n of
                             Just whatever ->
@@ -190,7 +213,7 @@ segmentMatcher s env succeed data =
                 Nothing
 
             Branch xs ->
-                case envGet s env of
+                case envGetElement s env of
                     -- we've already matched this
                     Just (Branch ys) ->
                         if List.take (List.length ys) xs == ys then
@@ -214,21 +237,19 @@ elementMatcher =
 -}
 exactMatcher : Data a -> Matcher a b
 exactMatcher x env succeed data =
-    case data of
-        Branch (y :: _) ->
-            if x == y then
-                succeed env 1
-            else
+    let
+        _ =
+            Debug.log "x,data" ( x, data )
+    in
+        case data of
+            Branch (y :: _) ->
+                if x == y then
+                    succeed env 1
+                else
+                    Nothing
+
+            _ ->
                 Nothing
-
-        _ ->
-            Nothing
-
-
-
--- {-| Alternative to list matcher.
--- -}
--- choiceMatcher : List (Matcher_ a b) -> Matcher_ a b
 
 
 choiceMatcher : List (Matcher a b) -> Matcher a b
@@ -257,11 +278,11 @@ restrictedElementMatcher restriction s env succeed data =
 
         Branch (y :: _) ->
             if restriction y then
-                case envGet s env of
+                case envGetElement s env of
                     Nothing ->
                         let
                             env2 =
-                                envInsert s y env
+                                envInsertElement s y env
                         in
                             succeed env2 1
 
@@ -272,6 +293,28 @@ restrictedElementMatcher restriction s env succeed data =
                             Nothing
             else
                 Nothing
+
+
+letMatcher : (Env a b -> Env a b) -> Matcher a b -> Matcher a b
+letMatcher bind body env succeed data =
+    body (bind env) succeed data
+
+
+nullMatcher : Matcher a b
+nullMatcher env succeed data =
+    Nothing
+
+
+referenceMatcher : Symbol -> Matcher a b
+referenceMatcher reference env succeed data =
+    let
+        _ =
+            Debug.log "referenceMatcher" reference
+
+        matcher =
+            envGetPattern reference env |> Maybe.withDefault nullMatcher
+    in
+        matcher env succeed data
 
 
 
@@ -360,15 +403,13 @@ splitParen string =
         runner [] tokens
 
 
-
--- treeToMatcher : Tree String -> Matcher_ String String
--- treeToMatcher : Tree String -> Matcher_T String b
-
-
 treeToMatcher : Tree String -> Matcher String String
 treeToMatcher parseTree =
     case parseTree of
         Node x ->
+            exactMatcher parseTree
+
+        Branch [] ->
             exactMatcher parseTree
 
         Branch ((Node "?") :: (Node s) :: []) ->
@@ -386,8 +427,32 @@ treeToMatcher parseTree =
         Branch ((Node "?:positive") :: (Node s) :: []) ->
             restrictedElementMatcher isPositive s
 
+        Branch ((Node "?:ref") :: (Node s) :: []) ->
+            referenceMatcher s
+
+        Branch ((Node "?:pletrec") :: (Branch definitions) :: body :: []) ->
+            let
+                add env =
+                    List.foldl addDefinition env definitions
+            in
+                letMatcher add (treeToMatcher body)
+
         Branch xs ->
             xs |> List.map treeToMatcher |> listMatcher
+
+
+addDefinition : Tree String -> Env String String -> Env String String
+addDefinition definition (Env env) =
+    case definition of
+        Branch ((Node name) :: pattern :: []) ->
+            let
+                matcher =
+                    pattern |> Debug.log "pattern" |> treeToMatcher
+            in
+                Env { env | patternDict = Dict.insert name matcher env.patternDict } |> Debug.log "added def"
+
+        _ ->
+            Env env
 
 
 allJust : List (Maybe b) -> Maybe (List b)
@@ -453,8 +518,8 @@ main =
 
 init : Model String
 init =
-    { inputString = "( ( a ( 1 2 3 ) ) )"
-    , convert = schemeString
+    { inputString = "( a ( 1 2 3 ) )"
+    , convert = (\x -> "( " ++ (String.trim x) ++ " )") >> schemeString
     , matcherString = "(( ? a ) ( 1 2 3 ) )"
     , consoleSucceed = False
     }
@@ -497,6 +562,7 @@ view model =
         matcherParse =
             Html.div []
                 [ model.matcherString
+                    |> String.trim
                     |> schemeString
                     |> toString
                     |> (++) "using : "
@@ -505,6 +571,7 @@ view model =
 
         matcher =
             model.matcherString
+                |> String.trim
                 |> schemeString
                 |> treeToMatcher
 
@@ -557,7 +624,7 @@ view model =
 intro : Html.Html msg
 intro =
     """Enter input text and pattern.
-    You have to write in scheme style, with space around inner parentheses.
+    Use scheme style, with space around inner parentheses.
     Click on an example from the list to load it. Available operators are:
       ? ?? ?:choice ?:int ?:positive.
   """ |> (\x -> div [] [ x |> text ])

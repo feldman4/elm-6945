@@ -81,11 +81,15 @@ makeTileCompatibility stateList converter =
                 |> Dict.fromList
 
         propagator iS1 iS2 ( iW1, iW2 ) =
-            ( iW1, iW2 )
-                |> converter
-                |> Maybe.andThen
-                    (\( i, j ) -> Dict.get ( i, j, iS1, iS2 ) table)
-                |> Maybe.withDefault False
+            let
+                _ =
+                    Debug.log "lookup" "lookup"
+            in
+                ( iW1, iW2 )
+                    |> converter
+                    |> Maybe.andThen
+                        (\( i, j ) -> Dict.get ( i, j, iS1, iS2 ) table)
+                    |> Maybe.withDefault False
     in
         propagator
 

@@ -12,12 +12,13 @@ import Task exposing (Task)
 import Time exposing (Time, inSeconds)
 import AnimationFrame exposing (times)
 import List.Extra
+import Dict
 
 
 main : Program Never Model Action
 main =
     Html.program
-        { init = (init 7 7 CheckerboardABCDEF) ! []
+        { init = (init 7 7 Knot) ! []
         , update = update
         , view = view
         , subscriptions = subscriptions
@@ -33,7 +34,9 @@ init height width tileset =
             , tileset = tileset
             , edges = edges
             , propagator = propagate edges compatibility
-            , propagator2 = propagateSupport compatibility
+            , propagator2 =
+                (\a b -> ( a, [ b ] ))
+                -- propagateSupport compatibility
             , pending = []
             , pending2 = []
             , height = height
@@ -53,7 +56,9 @@ init height width tileset =
             initWave height width tileset
 
         wave2 =
-            { support = waveToSupport edges compatibility wave
+            { support =
+                Dict.empty
+                -- waveToSupport edges compatibility wave
             , n = height * width
             , m = List.length (getTileSet tileset)
             , edges = edges
@@ -217,8 +222,10 @@ update action model =
                 cmd =
                     runUntil go stop done model (Time.second * 0.03)
             in
-                if not (stop2 model) && model.working == False then
-                    { model | working = True, pending2 = [] } ! [ cmd2 ]
+                if not (stop model) && model.working == False then
+                    { model | working = True, pending = [] } ! [ cmd ]
+                    -- if not (stop2 model) && model.working == False then
+                    --     { model | working = True, pending2 = [] } ! [ cmd2 ]
                 else
                     model ! []
 
@@ -382,15 +389,10 @@ initWave height width tileset =
 view : Model -> Html.Html Action
 view { wave, height, width, tileset, mouseOver, mouseTouch, edges, wave2 } =
     let
-        -- n =
-        --     Array.length wave
-        --
-        -- m =
-        --     Array.get 0 wave |> Maybe.map Array.length |> Maybe.withDefault 0
-        --
-        -- wave_ = supportToWave n m edges wave2.wave
+        -- wave_ =
+        --     wave2.wave
         wave_ =
-            wave2.wave
+            wave
 
         states =
             getTileSet tileset

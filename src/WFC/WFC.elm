@@ -377,65 +377,66 @@ collapserRandom counts seed =
     (\x -> Nothing)
 
 
-main : Html.Html msg
-main =
-    let
-        n =
-            5
 
-        edges =
-            gridEdges n n
-
-        states =
-            checkerboardABCDEF
-
-        k =
-            List.length states
-
-        statesArray =
-            states |> Array.fromList
-
-        initialWave =
-            Array.repeat (List.length states) True
-                |> Array.repeat (n * n)
-
-        cornerPoint =
-            True :: (List.repeat (k - 1) False)
-
-        changedWave =
-            initialWave
-                |> Array.set 0 (cornerPoint |> Array.fromList)
-
-        propagator : Compatibility
-        propagator =
-            makeTileCompatibility states (edgeToOffset n n)
-
-        observationDeck =
-            observeThenPropagate
-                selectorSimple
-                simpleCollapser
-                (propagate edges propagator)
-
-        drawPointDiv2 i point =
-            drawPointDiv statesArray point []
-
-        showWave wave =
-            drawWaveDiv n n drawPointDiv2 wave
-                |> List.repeat 1
-                |> div [ waveContainer (n * 20) (n * 20) ]
-    in
-        div []
-            [ initialWave |> showWave
-              -- , initialWave |> repeatApply observationDeck 1 |> showWave
-              -- , initialWave |> repeatApply observationDeck 2 |> showWave
-              -- , initialWave |> repeatApply observationDeck 3 |> showWave
-              -- , initialWave |> repeatApply observationDeck 4 |> showWave
-              -- , initialWave |> repeatApply observationDeck 5 |> showWave
-            , initialWave |> repeatApply observationDeck 6 |> showWave
-            ]
-
-
-
+--
+-- main : Html.Html msg
+-- main =
+--     let
+--         n =
+--             5
+--
+--         edges =
+--             gridEdges n n
+--
+--         states =
+--             checkerboardABCDEF
+--
+--         k =
+--             List.length states
+--
+--         statesArray =
+--             states |> Array.fromList
+--
+--         initialWave =
+--             Array.repeat (List.length states) True
+--                 |> Array.repeat (n * n)
+--
+--         cornerPoint =
+--             True :: (List.repeat (k - 1) False)
+--
+--         changedWave =
+--             initialWave
+--                 |> Array.set 0 (cornerPoint |> Array.fromList)
+--
+--         propagator : Compatibility
+--         propagator =
+--             makeTileCompatibility states (edgeToOffset n n)
+--
+--         observationDeck =
+--             observeThenPropagate
+--                 selectorSimple
+--                 simpleCollapser
+--                 (propagate edges propagator)
+--
+--         drawPointDiv2 i point =
+--             drawPointDiv statesArray point []
+--
+--         showWave wave =
+--             drawWaveDiv n n drawPointDiv2 wave
+--                 |> List.repeat 1
+--                 |> div [ waveContainer (n * 20) (n * 20) ]
+--     in
+--         div []
+--             [ initialWave |> showWave
+--               -- , initialWave |> repeatApply observationDeck 1 |> showWave
+--               -- , initialWave |> repeatApply observationDeck 2 |> showWave
+--               -- , initialWave |> repeatApply observationDeck 3 |> showWave
+--               -- , initialWave |> repeatApply observationDeck 4 |> showWave
+--               -- , initialWave |> repeatApply observationDeck 5 |> showWave
+--             , initialWave |> repeatApply observationDeck 6 |> showWave
+--             ]
+--
+--
 -- , finalWave |> viewWave n n
 --   -- , br [] []
 --   -- , testViewOverlaps n (propagator 4 5)

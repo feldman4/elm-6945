@@ -5,22 +5,24 @@ import WFC.Utilities exposing (..)
 import List.Extra exposing ((!!), lift4)
 import Dict
 import Array
-import Html exposing (text)
 
 
-main : Html.Html msg
-main =
-    let
-        ( height, width ) =
-            ( 7, 7 )
-
-        compatibility =
-            makeTileCompatibility checkerboardABCDEF (edgeToOffset height width)
-
-        f iS1 =
-            compatibility iS1 0 ( 8, 9 )
-    in
-        List.range 0 6 |> List.map f |> (toString >> text)
+-- main : Html.Html msg
+-- main =
+--     let
+--         _ =
+--             Debug.log "tile" "main"
+--
+--         ( height, width ) =
+--             ( 7, 7 )
+--
+--         compatibility =
+--             makeTileCompatibility checkerboardABCDEF (edgeToOffset height width)
+--
+--         f iS1 =
+--             compatibility iS1 0 ( 8, 9 )
+--     in
+--         List.range 0 6 |> List.map f |> (toString >> text)
 
 
 tileEntropy : List State -> Float
@@ -81,15 +83,15 @@ makeTileCompatibility stateList converter =
                 |> Dict.fromList
 
         propagator iS1 iS2 ( iW1, iW2 ) =
-            let
-                _ =
-                    Debug.log "lookup" "lookup"
-            in
-                ( iW1, iW2 )
-                    |> converter
-                    |> Maybe.andThen
-                        (\( i, j ) -> Dict.get ( i, j, iS1, iS2 ) table)
-                    |> Maybe.withDefault False
+            -- let
+            --     _ =
+            --         Debug.log "lookup" "lookup"
+            -- in
+            ( iW1, iW2 )
+                |> converter
+                |> Maybe.andThen
+                    (\( i, j ) -> Dict.get ( i, j, iS1, iS2 ) table)
+                |> Maybe.withDefault False
     in
         propagator
 

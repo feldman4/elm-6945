@@ -12,7 +12,6 @@ import Task exposing (Task)
 import Time exposing (Time, inSeconds)
 import AnimationFrame exposing (times)
 import List.Extra
-import Dict
 
 
 main : Program Never Model Action
@@ -30,15 +29,10 @@ init height width tileset =
     let
         model =
             { wave = wave
-            , wave2 = wave2
             , tileset = tileset
             , edges = edges
             , propagator = propagate edges compatibility
-            , propagator2 =
-                (\a b -> ( a, [ b ] ))
-                -- propagateSupport compatibility
             , pending = []
-            , pending2 = []
             , height = height
             , width = width
             , mouseOver = Nothing
@@ -48,35 +42,23 @@ init height width tileset =
 
         compatibility =
             makeTileCompatibility (getTileSet tileset) (edgeToOffset height width)
+                |> (\x -> ( x, Debug.log "made" "made" ) |> Tuple.first)
 
         edges =
             gridEdges height width
 
         wave =
             initWave height width tileset
-
-        wave2 =
-            { support =
-                Dict.empty
-                -- waveToSupport edges compatibility wave
-            , n = height * width
-            , m = List.length (getTileSet tileset)
-            , edges = edges
-            , wave = wave
-            }
     in
         model
 
 
 type alias Model =
     { wave : Wave
-    , wave2 : Wave2
     , tileset : TileSet
     , edges : Edges
     , propagator : Propagator
-    , propagator2 : Propagator2
     , pending : List IndexW
-    , pending2 : List PointMod
     , height : Int
     , width : Int
     , mouseOver : Maybe Int
@@ -95,7 +77,6 @@ type Action
     | Select IndexW
     | AnimationFrame Float
     | TaskDone ( Wave, List IndexW )
-    | TaskDone2 ( Wave2, List PointMod )
     | ChangeSize ( Int, Int )
 
 
@@ -124,39 +105,7 @@ update action model =
 
         Collapse iS ->
             -- need to update support and wave when a point is collapsed
-            let
-                newModel =
-                    collapseFromInventory model iS
-
-                getter iW w =
-                    Array.get iW w |> Maybe.withDefault Array.empty
-
-                test old new =
-                    let
-                        a =
-                            Debug.log "old,new" ( old, new, old && (not new) )
-                    in
-                        old && (not new)
-
-                finder iW =
-                    aFind2 test (getter iW model.wave2.wave) (getter iW newModel.wave)
-
-                -- sketchy: don't immediately update support to be consistent with collapse
-                -- relying instead on the next propagation to do it
-                ( newWave2, pointMod ) =
-                    case model.mouseOver of
-                        Just iW ->
-                            ( collapsePoint2 iW iS model.wave2, [ ( iW, finder iW ) ] )
-
-                        Nothing ->
-                            ( model.wave2, [] )
-            in
-                ({ newModel
-                    | pending2 = pointMod ++ newModel.pending2
-                    , wave2 = newWave2
-                 }
-                )
-                    ! []
+            (collapseFromInventory model iS) ! []
 
         Select iW ->
             case model.mouseOver of
@@ -183,13 +132,6 @@ update action model =
             in
                 { model | wave = wave, pending = pending2, working = False } ! []
 
-        TaskDone2 ( wave2, pending2 ) ->
-            let
-                x =
-                    condensePending2 model.pending2 pending2
-            in
-                { model | wave2 = wave2, pending2 = x, working = False } ! []
-
         ChangeTileSet tileset ->
             (init model.height model.width tileset) ! []
 
@@ -198,18 +140,6 @@ update action model =
 
         AnimationFrame diff ->
             let
-                go2 =
-                    propagateOnce2
-
-                stop2 m =
-                    List.isEmpty m.pending2
-
-                done2 m =
-                    TaskDone2 ( m.wave2, m.pending2 )
-
-                cmd2 =
-                    runUntil go2 stop2 done2 model (Time.second * 0.3)
-
                 go =
                     propagateOnce
 
@@ -224,8 +154,6 @@ update action model =
             in
                 if not (stop model) && model.working == False then
                     { model | working = True, pending = [] } ! [ cmd ]
-                    -- if not (stop2 model) && model.working == False then
-                    --     { model | working = True, pending2 = [] } ! [ cmd2 ]
                 else
                     model ! []
 
@@ -246,7 +174,21 @@ propagateOnce model =
             model
 
 
-propagateOnce2 : Model -> Model
+
+-- propagateOnce2 : Model -> Model
+
+
+propagateOnce2 :
+    { b
+        | pending2 : List PointMod
+        , propagator2 : a -> PointMod -> ( a, List PointMod )
+        , wave2 : a
+    }
+    -> { b
+        | pending2 : List PointMod
+        , propagator2 : a -> PointMod -> ( a, List PointMod )
+        , wave2 : a
+       }
 propagateOnce2 model =
     case model.pending2 of
         pointMod :: rest ->
@@ -387,13 +329,8 @@ initWave height width tileset =
 
 
 view : Model -> Html.Html Action
-view { wave, height, width, tileset, mouseOver, mouseTouch, edges, wave2 } =
+view { wave, height, width, tileset, mouseOver, mouseTouch, edges } =
     let
-        -- wave_ =
-        --     wave2.wave
-        wave_ =
-            wave
-
         states =
             getTileSet tileset
 
@@ -426,7 +363,7 @@ view { wave, height, width, tileset, mouseOver, mouseTouch, edges, wave2 } =
             div [ onClick (Collapse iS) ] [ drawStateDiv state ]
 
         waveDiv =
-            drawWaveDiv width height drawPointDiv2 wave_
+            drawWaveDiv width height drawPointDiv2 wave
 
         styles =
             waveContainer (width * 20) (height * 20)
@@ -440,7 +377,7 @@ view { wave, height, width, tileset, mouseOver, mouseTouch, edges, wave2 } =
                     mouseTouch
 
         pointDiv =
-            Array.get inventoryIndex wave_
+            Array.get inventoryIndex wave
                 |> Maybe.map (\point -> viewPointInventory states drawStateDiv2 point)
                 |> Maybe.withDefault (div [] [])
     in
@@ -492,7 +429,7 @@ subscriptions model =
             maskToIndex point |> List.isEmpty
 
         flag =
-            model.wave2.wave
+            model.wave
                 |> Array.toList
                 |> List.any contradiction
     in

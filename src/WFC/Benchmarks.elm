@@ -2,228 +2,171 @@ module WFC.Benchmarks exposing (..)
 
 import Benchmark exposing (..)
 import Benchmark.Runner exposing (BenchmarkProgram, program)
-import Dict
 import Array
-import List.Extra exposing (lift2)
+import Dict
 import WFC.Types exposing (..)
 import WFC.App exposing (..)
 import WFC.Tile exposing (..)
 import WFC.Utilities exposing (..)
 
 
-get : Benchmark
-get =
-    Benchmark.benchmark2 "Dict.get" Dict.get "a" (Dict.singleton "a" 1)
-
-
 main : BenchmarkProgram
 main =
-    program propagate
+    (Benchmark.describe "Dict"
+        [ -- getSimpleTuple
+          -- getCompatibility
+          -- getSimpleTupleOffset
+          -- convertEdge
+          getSimple
+        , basicOps
+        ]
+    )
+        |> program
 
 
-tileset : TileSet
-tileset =
-    CheckerboardABCDEF
+{-| 2us to look up compatibility once. numpy takes 30us to look up all the
+pairwise compatibilities making it up to (M^2 / 15) faster:
+
+self.wave[a+i,b+j,coeffs2] = \
+        self.table[a, b][np.ix_(coeffs1, coeffs2)].any(axis=0)
+-}
+getCompatibility : Benchmark
+getCompatibility =
+    (Benchmark.benchmark3
+        "get compatibility"
+        data.compatibility
+        0
+        0
+        ( 0, 1 )
+    )
 
 
-height : number
-height =
-    7
+{-| 57 ns per call.
+-}
+getSimple : Benchmark
+getSimple =
+    (Benchmark.benchmark2
+        "get simple"
+        Dict.get
+        "1"
+        (Dict.fromList [ ( "1", 2 ) ])
+    )
 
 
-width : number
-width =
-    7
+{-| 148 ns per call
+-}
+getSimpleTuple : Benchmark
+getSimpleTuple =
+    (Benchmark.benchmark2
+        "get simple tuple key"
+        Dict.get
+        ( 0, 0, 0, 0 )
+        (Dict.fromList [ ( ( 0, 0, 0, 0 ), 2 ) ])
+    )
 
 
-model : Model
-model =
-    init height width tileset
+{-|
+- 6 ns for identity with 1 arg.
+- 20 ns with 2 or more args.
+- overhead for (+) is at least 10X lower than calling a function of 2 args.
+- list of 100 numbers
+  - sum takes 1.5 us (750 ns for sum(list) in python)
+  - Array.toList takes 1.4 us, proportional to length
+-}
+basicOps : Benchmark
+basicOps =
+    let
+        xs =
+            List.range 0 1000
+
+        ys =
+            Array.fromList xs
+    in
+        (benchmark1
+            "identity"
+            -- (Array.foldl (+) 0)
+            -- (Array.toList >> List.sum)
+            Array.toList
+            ys
+        )
+
+
+{-| 1.2 us per call, independent of dictionary size.
+Due to defining compatibility table over (i,j) offsets, not (iW1, iW2) edges.
+     (i,j) table size: M * M * Ne = ~100K
+(iW1, iW2) table size: M * M * N  = ~10K * N = ~10M => 100 megabytes?
+
+or, memoize the converter edgeToOffset within makeTileCompatibility
+can pick where to memoize, what's case-specific is how the compatibility
+table factorizes. e.g., for simple bitmaps it is translation-invariant over
+points, so we can turn
+
+(iW1, iW2, iS1, iS2) -> Bool
+
+into
+
+((iW1, iW2) -> offset) ->
+  ((offset, iS1, iS2) -> Bool) ->
+  (iW1, iW2, iS1, iS2) -> Bool
+
+Tile compatibility is also symmetric over offsets, so we have the equivalence
+(offset, iS1, iS2) = (-offset, iS2, iS1). However wrapping a simpler table
+(e.g., only non-negative offsets, or only iS1 <= iS2) incurs an additional
+lookup
+
+-}
+getSimpleTupleOffset : Benchmark
+getSimpleTupleOffset =
+    let
+        converter =
+            (edgeToOffset 7 7)
+
+        table =
+            List.range 0 10000
+                |> List.map (\x -> ( ( x, x, x, x ), True ))
+                |> Dict.fromList
+
+        propagator iS1 iS2 ( iW1, iW2 ) =
+            ( iW1, iW2 )
+                |> converter
+                |> Maybe.andThen
+                    (\( i, j ) -> Dict.get ( i, j, iS1, iS2 ) table)
+                |> Maybe.withDefault False
+    in
+        (Benchmark.benchmark3
+            "get simple tuple offset"
+            propagator
+            0
+            0
+            ( 0, 0 )
+        )
+
+
+convertEdge : Benchmark
+convertEdge =
+    (benchmark1 "convert edge to offset" (edgeToOffset 7 7) ( 0, 1 ))
+
+
+data : { model : Model, compatibility : Compatibility }
+data =
+    let
+        ( height, width ) =
+            ( 7, 7 )
+
+        tileset =
+            CheckerboardABCDEF
+
+        compatibility =
+            makeTileCompatibility (getTileSet tileset) (edgeToOffset height width)
+    in
+        { model = init height width tileset, compatibility = compatibility }
 
 
 m : Int
 m =
-    Array.get 0 model.wave |> Maybe.map Array.length |> Maybe.withDefault -1
+    Array.get 0 data.model.wave |> Maybe.map Array.length |> Maybe.withDefault -1
 
 
 pointMod : ( number, List Int )
 pointMod =
     ( 0, List.range 1 (m - 1) )
-
-
-propagate : Benchmark
-propagate =
-    benchmark2 "propagator2" model.propagator2 model.wave2 pointMod
-
-
-compatibility : Compatibility
-compatibility =
-    makeTileCompatibility (getTileSet tileset) (edgeToOffset height width)
-
-
-support : Support
-support =
-    model.wave2.support
-
-
-edges : Edges
-edges =
-    model.wave2.edges
-
-
-wave : Wave
-wave =
-    model.wave2.wave
-
-
-wave2 : Wave2
-wave2 =
-    model.wave2
-
-
-iW1 : number
-iW1 =
-    0
-
-
-dPoint : List Int
-dPoint =
-    List.range 1 (m - 1)
-
-
-iSs : List Int
-iSs =
-    List.range 0 (m - 1)
-
-
-iW2s : List IndexW
-iW2s =
-    Dict.get iW1 edges |> Maybe.withDefault []
-
-
-
--- change in support due to losing iS1s in dPoint
--- could be faster to store compatibility for all iS1 as an Array
--- and then filter it instead of up to M dictionary calls
-
-
-dSupport : Edge -> IndexS -> Int
-dSupport edge iS2 =
-    dPoint
-        |> List.filter (\iS1 -> compatibility iS1 iS2 edge)
-        |> List.length
-
-
-
--- for a single iW2 and iS2, decrement support based on dPoint
-
-
-updateSupport : ( IndexW, IndexS ) -> Support -> Support
-updateSupport ( iW2, iS2 ) s =
-    let
-        edge =
-            ( iW1, iW2 )
-
-        f x =
-            x - (dSupport edge iS2)
-    in
-        Dict.update ( edge, iS2 ) (Maybe.map f) s
-
-
-
--- update support for each neighbor and all states
-
-
-newSupport : Support
-newSupport =
-    lift2 (,) iW2s iSs
-        |> List.foldl updateSupport support
-
-
-
--- get the new dPoints
--- new support must be zero
--- old support must be positive
--- wave coefficient cannot be zero
-
-
-lostSupport : IndexW -> List Int
-lostSupport iW2 =
-    let
-        old =
-            supportVector m support iW1 iW2
-
-        new =
-            supportVector m newSupport iW1 iW2
-
-        test ( old_, new_ ) =
-            let
-                wtf =
-                    if old_ < 0 || new_ < 0 then
-                        Debug.log "wtf" ( iW1, iW2, old, new )
-                    else
-                        ( 0, 0, [], [] )
-            in
-                (new_ == 0) && (old_ > 0)
-    in
-        List.map2 (,) old new
-            |> List.Extra.findIndices test
-
-
-toPoint2 : Int -> Maybe ( Int, List Int )
-toPoint2 iW2 =
-    let
-        -- if this point is collapsed, don't bother
-        coefficients =
-            Array.get iW2 wave
-                |> Maybe.map maskToIndex
-                |> Maybe.withDefault []
-
-        -- only collapse if the coefficient is positive
-        f iS =
-            List.member iS coefficients
-    in
-        if List.length coefficients > 1 then
-            case lostSupport iW2 |> List.filter f of
-                [] ->
-                    Nothing
-
-                iSs ->
-                    Just ( iW2, iSs )
-        else
-            Nothing
-
-
-nextPoints : List ( Int, List Int )
-nextPoints =
-    iW2s |> List.filterMap toPoint2
-
-
-
--- zero out the wave coefficients
-
-
-setToZero :
-    ( Int, List Int )
-    -> Array.Array (Array.Array Bool)
-    -> Array.Array (Array.Array Bool)
-setToZero ( iW, iSs ) w =
-    let
-        newPoint =
-            Array.get iW w
-                |> Maybe.withDefault Array.empty
-
-        newPoint2 =
-            List.foldl (\i a -> Array.set i False a) newPoint iSs
-    in
-        Array.set iW newPoint2 w
-
-
-newWave : Array.Array Point
-newWave =
-    List.foldl setToZero wave nextPoints
-
-
-
--- in
---     ( { wave2 | support = newSupport, wave = newWave }, nextPoints )

@@ -24,8 +24,9 @@ truthy data =
 
 
 evalProcedure : Expression -> List Expression -> Environment -> Maybe ( Procedure, List Value, Environment )
-evalProcedure =
-    evalProcedureApplicative
+evalProcedure a b c =
+    -- strange little elm runtime bug here if the arguments aren't enumerated
+    evalProcedureApplicative a b c
 
 
 
@@ -52,12 +53,16 @@ eval environment expression =
         Branch ((Leaf (Symbol "lambda")) :: (Branch parameters) :: body) ->
             -- MIT Scheme requires lambda parameters to be valid identifiers
             -- (aka Symbol?)
-            case makeLambda parameters body of
-                Just procedure ->
-                    ( Just (Procedure procedure), environment )
+            let
+                _ =
+                    Debug.log "lambda"
+            in
+                case makeLambda parameters body of
+                    Just procedure ->
+                        ( Just (Procedure procedure), environment )
 
-                Nothing ->
-                    ( Nothing, environment )
+                    Nothing ->
+                        ( Nothing, environment )
 
         Branch ((Leaf (Symbol "begin")) :: exprs) ->
             evalBegin exprs environment
@@ -90,12 +95,16 @@ eval environment expression =
             ( Nothing, evalAssignment name value environment )
 
         Branch (operator :: arguments) ->
-            case evalProcedure operator arguments environment of
-                Just ( procedure, argumentData, env2 ) ->
-                    eval env2 <| apply procedure argumentData
+            let
+                _ =
+                    Debug.log "op-args" ( operator, arguments )
+            in
+                case evalProcedure operator arguments environment |> Debug.log "got here" of
+                    Just ( procedure, argumentData, env2 ) ->
+                        eval env2 <| apply procedure argumentData
 
-                _ ->
-                    ( Nothing, environment )
+                    _ ->
+                        ( Nothing, environment )
 
         _ ->
             ( Nothing, environment )
@@ -254,7 +263,18 @@ type Data
     | Symbol Symbol
 
 
-{-| Should symbols bind to Data or Expression?
+type Tree a
+    = Branch (List (Tree a))
+    | Leaf a
+
+
+type alias ParseState =
+    { branches : List (Tree String)
+    , done : Maybe (Tree String)
+    }
+
+
+{-| Should symbols bind to Data or Tree Data?
 -}
 type alias Frame =
     Dict Symbol Data
@@ -278,17 +298,6 @@ type alias Body =
 
 type alias Symbol =
     String
-
-
-type Tree a
-    = Branch (List (Tree a))
-    | Leaf a
-
-
-type alias ParseState =
-    { branches : List (Tree String)
-    , done : Maybe (Tree String)
-    }
 
 
 
@@ -535,8 +544,8 @@ init =
     """
 (begin
   (set! x 7)
-  (debug (if True x 4))
-  ( (lambda (a b) (if a b 4)) True 7 )
+  (set! f (lambda (a b) (if a b blah)))
+  (debug (if True 0 blah))
 )
 
     """ |> String.dropLeft 1
@@ -566,16 +575,18 @@ view input =
                 ++ " )"
                 |> parseScheme
                 |> unpack
-                |> Debug.log "unpack"
                 |> List.filterMap (traverseTree coerce)
-                -- |> Debug.log "input expressions"
-                |>
-                    List.map (eval envEmpty)
+                |> List.map (eval envEmpty)
 
         blah =
             expressions
-                |> List.map toString
-                |> List.map (\s -> div [] [ text s ])
+                |> List.map viewOutput
+
+        viewOutput ( value, environment ) =
+            div []
+                [ div [] [ value |> toString |> (++) "value: " |> text ]
+                , div [] [ environment |> toString |> (++) "environment: " |> text ]
+                ]
     in
         div []
             [ textarea [ onInput Input, rows 10, cols 80 ] [ input |> text ]

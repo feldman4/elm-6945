@@ -8417,7 +8417,7 @@ var _user$project$Scheme$update = F2(
 			_p0._0,
 			{ctor: '[]'});
 	});
-var _user$project$Scheme$init = A2(_elm_lang$core$String$dropLeft, 1, '\n(begin\n  (set! x 7)\n  (debug (if True x 4))\n  ( (lambda (a b) (if a b 4)) True 7 )\n)\n\n    ');
+var _user$project$Scheme$init = A2(_elm_lang$core$String$dropLeft, 1, '\n(begin\n  (set! x 7)\n  (set! f (lambda (a b) (if a b blah)))\n  (debug (if True 0 blah))\n)\n\n    ');
 var _user$project$Scheme$maybeOr = F2(
 	function (fs, a) {
 		maybeOr:
@@ -8887,12 +8887,13 @@ var _user$project$Scheme$eval = F2(
 								switch (_p23._0._0._0._0) {
 									case 'lambda':
 										if ((_p23._0._1.ctor === '::') && (_p23._0._1._0.ctor === 'Branch')) {
-											var _p24 = A2(_user$project$Scheme$makeLambda, _p23._0._1._0._0, _p23._0._1._1);
-											if (_p24.ctor === 'Just') {
+											var _p24 = _elm_lang$core$Debug$log('lambda');
+											var _p25 = A2(_user$project$Scheme$makeLambda, _p23._0._1._0._0, _p23._0._1._1);
+											if (_p25.ctor === 'Just') {
 												return {
 													ctor: '_Tuple2',
 													_0: _elm_lang$core$Maybe$Just(
-														_user$project$Scheme$Procedure(_p24._0)),
+														_user$project$Scheme$Procedure(_p25._0)),
 													_1: environment
 												};
 											} else {
@@ -8905,31 +8906,31 @@ var _user$project$Scheme$eval = F2(
 										return A2(_user$project$Scheme$evalBegin, _p23._0._1, environment);
 									case 'debug':
 										if ((_p23._0._1.ctor === '::') && (_p23._0._1._1.ctor === '[]')) {
-											var _p28 = _p23._0._1._0;
-											var _p25 = A2(_user$project$Scheme$eval, environment, _p28);
-											var value = _p25._0;
-											var env2 = _p25._1;
-											var _p26 = function (_p27) {
+											var _p29 = _p23._0._1._0;
+											var _p26 = A2(_user$project$Scheme$eval, environment, _p29);
+											var value = _p26._0;
+											var env2 = _p26._1;
+											var _p27 = function (_p28) {
 												return A2(_elm_lang$core$Debug$log, 'debug value', value);
 											}(
-												A2(_elm_lang$core$Debug$log, 'debug expression', _p28));
+												A2(_elm_lang$core$Debug$log, 'debug expression', _p29));
 											return {ctor: '_Tuple2', _0: value, _1: env2};
 										} else {
 											break _v27_8;
 										}
 									case 'if':
 										if ((((_p23._0._1.ctor === '::') && (_p23._0._1._1.ctor === '::')) && (_p23._0._1._1._1.ctor === '::')) && (_p23._0._1._1._1._1.ctor === '[]')) {
-											var _p29 = A2(_user$project$Scheme$eval, environment, _p23._0._1._0);
-											if (_p29._0.ctor === 'Just') {
-												var _p30 = _p29._1;
-												if (_user$project$Scheme$truthy(_p29._0._0)) {
-													var _v30 = _p30,
+											var _p30 = A2(_user$project$Scheme$eval, environment, _p23._0._1._0);
+											if (_p30._0.ctor === 'Just') {
+												var _p31 = _p30._1;
+												if (_user$project$Scheme$truthy(_p30._0._0)) {
+													var _v30 = _p31,
 														_v31 = _p23._0._1._1._0;
 													environment = _v30;
 													expression = _v31;
 													continue $eval;
 												} else {
-													var _v32 = _p30,
+													var _v32 = _p31,
 														_v33 = _p23._0._1._1._1._0;
 													environment = _v32;
 													expression = _v33;
@@ -8962,10 +8963,19 @@ var _user$project$Scheme$eval = F2(
 						}
 					}
 				} while(false);
-				var _p31 = A3(_user$project$Scheme$evalProcedure, _p23._0._0, _p23._0._1, environment);
-				if ((_p31.ctor === 'Just') && (_p31._0.ctor === '_Tuple3')) {
-					var _v35 = _p31._0._2,
-						_v36 = A2(_user$project$Scheme$apply, _p31._0._0, _p31._0._1);
+				var _p35 = _p23._0._0;
+				var _p34 = _p23._0._1;
+				var _p32 = A2(
+					_elm_lang$core$Debug$log,
+					'op-args',
+					{ctor: '_Tuple2', _0: _p35, _1: _p34});
+				var _p33 = A2(
+					_elm_lang$core$Debug$log,
+					'got here',
+					A3(_user$project$Scheme$evalProcedure, _p35, _p34, environment));
+				if ((_p33.ctor === 'Just') && (_p33._0.ctor === '_Tuple3')) {
+					var _v35 = _p33._0._2,
+						_v36 = A2(_user$project$Scheme$apply, _p33._0._0, _p33._0._1);
 					environment = _v35;
 					expression = _v36;
 					continue $eval;
@@ -8978,51 +8988,54 @@ var _user$project$Scheme$eval = F2(
 	});
 var _user$project$Scheme$evalAssignment = F3(
 	function (name, value, environment) {
-		var _p32 = A2(_user$project$Scheme$eval, environment, value);
-		if ((_p32.ctor === '_Tuple2') && (_p32._0.ctor === 'Just')) {
-			return A3(_user$project$Scheme$envUpdate, _p32._1, name, _p32._0._0);
+		var _p36 = A2(_user$project$Scheme$eval, environment, value);
+		if ((_p36.ctor === '_Tuple2') && (_p36._0.ctor === 'Just')) {
+			return A3(_user$project$Scheme$envUpdate, _p36._1, name, _p36._0._0);
 		} else {
 			return environment;
 		}
 	});
 var _user$project$Scheme$evalBegin = F2(
 	function (expressions, environment) {
-		var _p33 = expressions;
-		if (_p33.ctor === '[]') {
+		var _p37 = expressions;
+		if (_p37.ctor === '[]') {
 			return {ctor: '_Tuple2', _0: _elm_lang$core$Maybe$Nothing, _1: environment};
 		} else {
-			if (_p33._1.ctor === '[]') {
-				return A2(_user$project$Scheme$eval, environment, _p33._0);
+			if (_p37._1.ctor === '[]') {
+				return A2(_user$project$Scheme$eval, environment, _p37._0);
 			} else {
-				return function (_p34) {
-					var _p35 = _p34;
-					return A2(_user$project$Scheme$evalBegin, _p33._1, _p35._1);
+				return function (_p38) {
+					var _p39 = _p38;
+					return A2(_user$project$Scheme$evalBegin, _p37._1, _p39._1);
 				}(
-					A2(_user$project$Scheme$eval, environment, _p33._0));
+					A2(_user$project$Scheme$eval, environment, _p37._0));
 			}
 		}
 	});
-var _user$project$Scheme$evalProcedure = _user$project$Scheme$evalProcedureApplicative;
+var _user$project$Scheme$evalProcedure = F3(
+	function (a, b, c) {
+		return A3(_user$project$Scheme$evalProcedureApplicative, a, b, c);
+	});
 var _user$project$Scheme$evalProcedureApplicative = F3(
 	function (operator, $arguments, environment) {
 		var f = F2(
 			function (expr, soFar) {
-				var _p36 = soFar;
-				if ((_p36.ctor === 'Just') && (_p36._0.ctor === '_Tuple2')) {
-					var _p37 = A2(_user$project$Scheme$eval, _p36._0._1, expr);
-					if ((_p37.ctor === '_Tuple2') && (_p37._0.ctor === 'Just')) {
+				var _p40 = soFar;
+				if ((_p40.ctor === 'Just') && (_p40._0.ctor === '_Tuple2')) {
+					var _p41 = A2(_user$project$Scheme$eval, _p40._0._1, expr);
+					if ((_p41.ctor === '_Tuple2') && (_p41._0.ctor === 'Just')) {
 						return _elm_lang$core$Maybe$Just(
 							{
 								ctor: '_Tuple2',
 								_0: A2(
 									_elm_lang$core$Basics_ops['++'],
-									_p36._0._0,
+									_p40._0._0,
 									{
 										ctor: '::',
-										_0: _p37._0._0,
+										_0: _p41._0._0,
 										_1: {ctor: '[]'}
 									}),
-								_1: _p37._1
+								_1: _p41._1
 							});
 					} else {
 						return _elm_lang$core$Maybe$Nothing;
@@ -9031,13 +9044,13 @@ var _user$project$Scheme$evalProcedureApplicative = F3(
 					return _elm_lang$core$Maybe$Nothing;
 				}
 			});
-		var _p38 = A2(_user$project$Scheme$eval, environment, operator);
-		if (((_p38.ctor === '_Tuple2') && (_p38._0.ctor === 'Just')) && (_p38._0._0.ctor === 'Procedure')) {
+		var _p42 = A2(_user$project$Scheme$eval, environment, operator);
+		if (((_p42.ctor === '_Tuple2') && (_p42._0.ctor === 'Just')) && (_p42._0._0.ctor === 'Procedure')) {
 			return A2(
 				_elm_lang$core$Maybe$map,
-				function (_p39) {
-					var _p40 = _p39;
-					return {ctor: '_Tuple3', _0: _p38._0._0._0, _1: _p40._0, _2: _p40._1};
+				function (_p43) {
+					var _p44 = _p43;
+					return {ctor: '_Tuple3', _0: _p42._0._0._0, _1: _p44._0, _2: _p44._1};
 				},
 				A3(
 					_elm_lang$core$List$foldl,
@@ -9046,7 +9059,7 @@ var _user$project$Scheme$evalProcedureApplicative = F3(
 						{
 							ctor: '_Tuple2',
 							_0: {ctor: '[]'},
-							_1: _p38._1
+							_1: _p42._1
 						}),
 					$arguments));
 		} else {
@@ -9055,12 +9068,12 @@ var _user$project$Scheme$evalProcedureApplicative = F3(
 	});
 var _user$project$Scheme$traverseTree = F2(
 	function (f, tree) {
-		var _p41 = tree;
-		if (_p41.ctor === 'Leaf') {
+		var _p45 = tree;
+		if (_p45.ctor === 'Leaf') {
 			return A2(
 				_elm_lang$core$Maybe$map,
 				_user$project$Scheme$Leaf,
-				f(_p41._0));
+				f(_p45._0));
 		} else {
 			return A2(
 				_elm_lang$core$Maybe$map,
@@ -9068,17 +9081,17 @@ var _user$project$Scheme$traverseTree = F2(
 				A2(
 					_elm_community$maybe_extra$Maybe_Extra$traverse,
 					_user$project$Scheme$traverseTree(f),
-					_p41._0));
+					_p45._0));
 		}
 	});
 var _user$project$Scheme$reverseTree = function (tree) {
-	var _p42 = tree;
-	if (_p42.ctor === 'Leaf') {
+	var _p46 = tree;
+	if (_p46.ctor === 'Leaf') {
 		return tree;
 	} else {
 		return _user$project$Scheme$Branch(
 			_elm_lang$core$List$reverse(
-				A2(_elm_lang$core$List$map, _user$project$Scheme$reverseTree, _p42._0)));
+				A2(_elm_lang$core$List$map, _user$project$Scheme$reverseTree, _p46._0)));
 	}
 };
 var _user$project$Scheme$parseTokens = function (tokens) {
@@ -9155,10 +9168,53 @@ var _user$project$Scheme$Input = function (a) {
 	return {ctor: 'Input', _0: a};
 };
 var _user$project$Scheme$view = function (input) {
+	var viewOutput = function (_p47) {
+		var _p48 = _p47;
+		return A2(
+			_elm_lang$html$Html$div,
+			{ctor: '[]'},
+			{
+				ctor: '::',
+				_0: A2(
+					_elm_lang$html$Html$div,
+					{ctor: '[]'},
+					{
+						ctor: '::',
+						_0: _elm_lang$html$Html$text(
+							A2(
+								F2(
+									function (x, y) {
+										return A2(_elm_lang$core$Basics_ops['++'], x, y);
+									}),
+								'value: ',
+								_elm_lang$core$Basics$toString(_p48._0))),
+						_1: {ctor: '[]'}
+					}),
+				_1: {
+					ctor: '::',
+					_0: A2(
+						_elm_lang$html$Html$div,
+						{ctor: '[]'},
+						{
+							ctor: '::',
+							_0: _elm_lang$html$Html$text(
+								A2(
+									F2(
+										function (x, y) {
+											return A2(_elm_lang$core$Basics_ops['++'], x, y);
+										}),
+									'environment: ',
+									_elm_lang$core$Basics$toString(_p48._1))),
+							_1: {ctor: '[]'}
+						}),
+					_1: {ctor: '[]'}
+				}
+			});
+	};
 	var unpack = function (expr) {
-		var _p43 = expr;
-		if ((_p43.ctor === 'Just') && (_p43._0.ctor === 'Branch')) {
-			return _p43._0._0;
+		var _p49 = expr;
+		if ((_p49.ctor === 'Just') && (_p49._0.ctor === 'Branch')) {
+			return _p49._0._0;
 		} else {
 			return {ctor: '[]'};
 		}
@@ -9169,28 +9225,13 @@ var _user$project$Scheme$view = function (input) {
 		A2(
 			_elm_lang$core$List$filterMap,
 			_user$project$Scheme$traverseTree(_user$project$Scheme$coerce),
-			A2(
-				_elm_lang$core$Debug$log,
-				'unpack',
-				unpack(
-					_user$project$Scheme$parseScheme(
-						A2(
-							_elm_lang$core$Basics_ops['++'],
-							'( ',
-							A2(_elm_lang$core$Basics_ops['++'], input, ' )')))))));
-	var blah = A2(
-		_elm_lang$core$List$map,
-		function (s) {
-			return A2(
-				_elm_lang$html$Html$div,
-				{ctor: '[]'},
-				{
-					ctor: '::',
-					_0: _elm_lang$html$Html$text(s),
-					_1: {ctor: '[]'}
-				});
-		},
-		A2(_elm_lang$core$List$map, _elm_lang$core$Basics$toString, expressions));
+			unpack(
+				_user$project$Scheme$parseScheme(
+					A2(
+						_elm_lang$core$Basics_ops['++'],
+						'( ',
+						A2(_elm_lang$core$Basics_ops['++'], input, ' )'))))));
+	var blah = A2(_elm_lang$core$List$map, viewOutput, expressions);
 	return A2(
 		_elm_lang$html$Html$div,
 		{ctor: '[]'},
@@ -9234,7 +9275,7 @@ var _user$project$Scheme$main = _elm_lang$html$Html$program(
 			{ctor: '[]'}),
 		update: _user$project$Scheme$update,
 		view: _user$project$Scheme$view,
-		subscriptions: function (_p44) {
+		subscriptions: function (_p50) {
 			return _elm_lang$core$Platform_Sub$batch(
 				{ctor: '[]'});
 		}

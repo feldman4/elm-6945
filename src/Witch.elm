@@ -258,6 +258,11 @@ toSubSequences elements =
 -- TYPES
 
 
+type Tree
+    = Branch (List Tree)
+    | Leaf Int
+
+
 type Number
     = One
     | Two

@@ -5,6 +5,7 @@ import Html.Attributes exposing (height, width, rows, cols)
 import Html.Events exposing (onInput)
 import Dict exposing (Dict)
 import Maybe.Extra
+import Scheme.Types exposing (..)
 
 
 -- SPECIFICATION
@@ -37,10 +38,26 @@ evalProcedure a b c =
 {-| (Maybe Value, Environment) is not as nice as Maybe (Value, Environment).
 But it does let you signal that things like set! don't return a defined value,
 without introducing Data = ... | Undefined.
+
+Does not distinguish errors from undefined. Could upgrade to a Result type with
+error messages.
 -}
 eval : Environment -> Expression -> ( Maybe Value, Environment )
 eval environment expression =
     case expression of
+        --to add lazy-memo:
+        --  0. Data = ... | Thunk {ThunkStyle, Expression, Environment}
+        --    enclosing environment can memoize evaluated Thunks. potentially fast
+        --    since the substituted Thunks should be reference equal in Elm
+        --    (benefit of s-expression instead of function)
+        --  1. new syntax symbol "lazy-memo"
+        --  2. in makeLambda, give procedure List (Operand, ThunkStyle)
+        --  3. in apply, change substitutions to create Thunk depending on ThunkStyle
+        --  4. overeager Thunk: force Thunk evaluation in certain places:
+        --    a. primitive apply
+        --    b. operator apply
+        --    c. if predicate apply
+        --    d. repl
         Leaf (Boolean x) ->
             ( Just (Boolean x), environment )
 
@@ -50,19 +67,27 @@ eval environment expression =
         Leaf (Symbol s) ->
             ( envGet environment s, environment )
 
-        Branch ((Leaf (Symbol "lambda")) :: (Branch parameters) :: body) ->
-            -- MIT Scheme requires lambda parameters to be valid identifiers
-            -- (aka Symbol?)
+        Branch ((Leaf (Symbol "define")) :: ((Branch ((Leaf (Symbol name)) :: parameters)) :: body)) ->
             let
-                _ =
-                    Debug.log "lambda"
+                function =
+                    makeLambda parameters body
             in
-                case makeLambda parameters body of
-                    Just procedure ->
-                        ( Just (Procedure procedure), environment )
+                case function of
+                    Just proc ->
+                        ( Nothing, evalAssignment name (Leaf (Procedure proc)) environment )
 
                     Nothing ->
                         ( Nothing, environment )
+
+        Branch ((Leaf (Symbol "lambda")) :: (Branch parameters) :: body) ->
+            -- MIT Scheme requires lambda parameters to be valid identifiers
+            -- (aka Symbol?)
+            case makeLambda parameters body of
+                Just procedure ->
+                    ( Just (Procedure procedure), environment )
+
+                Nothing ->
+                    ( Nothing, environment )
 
         Branch ((Leaf (Symbol "begin")) :: exprs) ->
             evalBegin exprs environment
@@ -95,21 +120,19 @@ eval environment expression =
             ( Nothing, evalAssignment name value environment )
 
         Branch (operator :: arguments) ->
-            let
-                _ =
-                    Debug.log "op-args" ( operator, arguments )
-            in
-                case evalProcedure operator arguments environment |> Debug.log "got here" of
-                    Just ( procedure, argumentData, env2 ) ->
-                        eval env2 <| apply procedure argumentData
+            case evalProcedure operator arguments environment of
+                Just ( procedure, argumentData, env2 ) ->
+                    eval env2 <| apply procedure argumentData
 
-                    _ ->
-                        ( Nothing, environment )
+                _ ->
+                    ( Nothing, environment )
 
         _ ->
             ( Nothing, environment )
 
 
+{-| MIT Scheme requires lambda parameters to be valid identifiers
+-}
 makeLambda : List Expression -> List Expression -> Maybe Procedure
 makeLambda parameters body =
     let
@@ -191,7 +214,12 @@ evalBegin expressions environment =
 -- APPLY
 
 
-{-| needs to substitute values for symbols in the tree
+{-| Currently substitutes values for symbols in the body. The other way is to
+update the variable binding in the environment. Need the second way to build a
+closure.
+
+Parsing the code gave us a tree. The (tree, environment) pair is subjected to
+the two maps eval and apply. Here there's a choice in whether to map the
 -}
 apply : Procedure -> List Value -> Expression
 apply ( operands, body ) arguments =
@@ -261,11 +289,7 @@ type Data
     | Boolean Bool
     | Procedure Procedure
     | Symbol Symbol
-
-
-type Tree a
-    = Branch (List (Tree a))
-    | Leaf a
+    | Undefined
 
 
 type alias ParseState =
@@ -333,6 +357,7 @@ coerce string =
             , coerceSymbol "begin"
             , coerceSymbol "set!"
             , coerceSymbol "lambda"
+            , coerceSymbol "define"
             ]
 
         primitives =
@@ -428,7 +453,9 @@ parseToken token parseState =
 -- HELPERS
 
 
-{-| parse a string of scheme code, parentheses
+{-| Parse a string of scheme code. Special forms are stored as symbols. Could
+pattern match special forms here and produce syntax errors, rather than
+evaluation errors in the case structure of eval.
 -}
 parseScheme : String -> Maybe (Tree String)
 parseScheme input =
@@ -469,6 +496,27 @@ mapTree f tree =
 
         Branch xs ->
             Branch (List.map (mapTree f) xs)
+
+
+filterTree : (a -> Bool) -> Tree a -> Tree a
+filterTree f tree =
+    let
+        g n =
+            case n of
+                Leaf x ->
+                    f x
+
+                Branch _ ->
+                    True
+    in
+        case tree of
+            Leaf x ->
+                Leaf x
+
+            Branch xs ->
+                List.filter g xs
+                    |> List.map (filterTree f)
+                    |> Branch
 
 
 traverseTree : (a -> Maybe b) -> Tree a -> Maybe (Tree b)
@@ -532,7 +580,7 @@ maybeOr fs a =
 main : Program Never String Action
 main =
     Html.program
-        { init = init ! []
+        { init = example3 ! []
         , update = update
         , view = view
         , subscriptions = (\_ -> Sub.batch [])
@@ -547,15 +595,37 @@ init =
   (set! f (lambda (a b) (if a b blah)))
   (debug (if True 0 blah))
 )
+""" |> String.dropLeft 1
 
-    """ |> String.dropLeft 1
+
+example2 : String
+example2 =
+    """
+(begin
+  (define (g x) 3)
+  (g 7)
+)""" |> String.dropLeft 1
 
 
-update : Action -> Model -> ( Model, Cmd Action )
+example3 : String
+example3 =
+    """
+  (begin
+  (set! x 7)
+  (set! f (lambda (a b) (if a b blah)))
+  (f False x)
+)
+"""
+
+
+update : Action -> Model -> ( Model, Cmd msg )
 update action model =
     case action of
         Input s ->
             s ! []
+
+        Fuckyou ->
+            ("fuckyou" ++ model) ! []
 
 
 view : String -> Html.Html Action
@@ -576,10 +646,12 @@ view input =
                 |> parseScheme
                 |> unpack
                 |> List.filterMap (traverseTree coerce)
-                |> List.map (eval envEmpty)
+
+        doneExpressions =
+            expressions |> List.map (eval envEmpty)
 
         blah =
-            expressions
+            doneExpressions
                 |> List.map viewOutput
 
         viewOutput ( value, environment ) =
@@ -591,11 +663,13 @@ view input =
         div []
             [ textarea [ onInput Input, rows 10, cols 80 ] [ input |> text ]
             , div [] blah
+            , div [] [ expressions |> toString |> text ]
             ]
 
 
 type Action
     = Input String
+    | Fuckyou
 
 
 type alias Model =

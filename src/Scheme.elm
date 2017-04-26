@@ -24,12 +24,6 @@ truthy data =
             True
 
 
-evalProcedure : Expression -> List Expression -> Environment -> Maybe ( Procedure, List Value, Environment )
-evalProcedure a b c =
-    -- strange little elm runtime bug here if the arguments aren't enumerated
-    evalProcedureApplicative a b c
-
-
 
 --MORE TYPES
 --EVAL
@@ -66,6 +60,9 @@ eval environment expression =
 
         Leaf (Symbol s) ->
             ( envGet environment s, environment )
+
+        Leaf (Primitive p) ->
+            ( Just (Primitive p), environment )
 
         Branch ((Leaf (Symbol "define")) :: ((Branch ((Leaf (Symbol name)) :: parameters)) :: body)) ->
             let
@@ -120,12 +117,7 @@ eval environment expression =
             ( Nothing, evalAssignment name value environment )
 
         Branch (operator :: arguments) ->
-            case evalProcedure operator arguments environment of
-                Just ( procedure, argumentData, env2 ) ->
-                    eval env2 <| apply procedure argumentData
-
-                _ ->
-                    ( Nothing, environment )
+            evalProcedure environment operator arguments
 
         _ ->
             ( Nothing, environment )
@@ -165,12 +157,42 @@ evalAssignment name value environment =
             environment
 
 
-evalProcedureApplicative :
-    Expression
+evalProcedure : Environment -> Expression -> List Expression -> ( Maybe Data, Environment )
+evalProcedure environment operator arguments =
+    let
+        evalArgs env args =
+            evalArgsApplicative env args
+                |> Debug.log "eval'd args"
+                |> Maybe.map (\( xs, env2 ) -> ( xs, env2 ))
+    in
+        -- eval the operator, then the arguments
+        case eval environment operator of
+            ( Just (Procedure p), env2 ) ->
+                case evalArgs env2 arguments of
+                    Just ( argumentData, env3 ) ->
+                        eval env3 <| apply p argumentData
+
+                    Nothing ->
+                        ( Nothing, environment )
+
+            ( Just (Primitive p), env2 ) ->
+                case evalArgs env2 arguments of
+                    Just ( argumentData, env3 ) ->
+                        p argumentData
+                            |> (\x -> ( x, env3 ))
+
+                    Nothing ->
+                        ( Nothing, environment )
+
+            _ ->
+                ( Nothing, environment )
+
+
+evalArgsApplicative :
+    Environment
     -> List Expression
-    -> Environment
-    -> Maybe ( Procedure, List Value, Environment )
-evalProcedureApplicative operator arguments environment =
+    -> Maybe ( List Data, Environment )
+evalArgsApplicative environment arguments =
     let
         -- combine each (Maybe Data, Environment) to get Maybe (List Data, Environment)
         -- could rewrite this fold with Maybe.map
@@ -188,13 +210,7 @@ evalProcedureApplicative operator arguments environment =
                 _ ->
                     Nothing
     in
-        case eval environment operator of
-            ( Just (Procedure p), env2 ) ->
-                List.foldl f (Just ( [], env2 )) arguments
-                    |> Maybe.map (\( a, b ) -> ( p, a, b ))
-
-            _ ->
-                Nothing
+        List.foldl f (Just ( [], environment )) arguments
 
 
 evalBegin : List Expression -> Environment -> ( Maybe Value, Environment )
@@ -241,27 +257,59 @@ apply ( operands, body ) arguments =
 {-| could combine name recognition and execution in type
 String -> List Data -> Data
 -}
-primitiveProcedure : String -> Maybe (List Data -> Maybe Data)
+primitiveProcedure : String -> Maybe Primitive
 primitiveProcedure name =
     case name of
         "+" ->
-            Just (addlikeOp (+))
+            Just (addlikeOp (+) 0)
 
         "*" ->
-            Just (addlikeOp (*))
+            Just (addlikeOp (*) 1)
+
+        "=" ->
+            Just (Just << listEqual)
 
         _ ->
             Nothing
 
 
-addlikeOp : (Float -> Float -> Float) -> List Data -> Maybe Data
-addlikeOp op data =
+listEqual : List Data -> Data
+listEqual xs =
+    case xs of
+        [] ->
+            Boolean True
+
+        x :: rest ->
+            rest |> List.all (equal x) |> Boolean
+
+
+equal : Data -> Data -> Bool
+equal a b =
+    case ( a, b ) of
+        ( Number x, Number y ) ->
+            x == y
+
+        ( Boolean x, Boolean y ) ->
+            x == y
+
+        ( Primitive x, Primitive y ) ->
+            False
+
+        ( Symbol x, Symbol y ) ->
+            x == y
+
+        _ ->
+            False
+
+
+addlikeOp : (Float -> Float -> Float) -> Float -> List Data -> Maybe Data
+addlikeOp op zero data =
     case data of
         [] ->
-            Just (Number 0)
+            Just (Number zero)
 
         (Number x) :: xs ->
-            case (addlikeOp op xs) of
+            case (addlikeOp op zero xs) of
                 Just (Number y_) ->
                     Just (Number (op x y_))
 
@@ -289,6 +337,7 @@ type Data
     | Boolean Bool
     | Procedure Procedure
     | Symbol Symbol
+    | Primitive Primitive
     | Undefined
 
 
@@ -306,6 +355,10 @@ type alias Frame =
 
 type alias Procedure =
     ( List Operand, Body )
+
+
+type alias Primitive =
+    List Data -> Maybe Data
 
 
 type alias Operand =
@@ -351,6 +404,9 @@ coerce string =
         coerceSymbolic s =
             Just (Symbol s)
 
+        coercePrimitive s =
+            primitiveProcedure s |> Maybe.map Primitive
+
         specialForms =
             [ coerceSymbol "if"
             , coerceSymbol "debug"
@@ -358,6 +414,7 @@ coerce string =
             , coerceSymbol "set!"
             , coerceSymbol "lambda"
             , coerceSymbol "define"
+            , coercePrimitive
             ]
 
         primitives =

@@ -15,7 +15,7 @@ import Scheme.Extra exposing (evalThrough, drawNodeData)
 main : Program Never String Action
 main =
     Html.program
-        { init = example3 ! []
+        { init = appProgram ! []
         , update = update
         , view = view
         , subscriptions = (\_ -> Sub.batch [])
@@ -30,7 +30,7 @@ init =
   (set! f (lambda (a b) (if a b -99)))
   (debug (if True 0 blah))
 )
-""" |> String.dropLeft 1
+""" |> String.trim
 
 
 example2 : String
@@ -39,7 +39,7 @@ example2 =
 (begin
   (define (g x) 3)
   (g 7)
-)""" |> String.dropLeft 1
+)""" |> String.trim
 
 
 example3 : String
@@ -50,7 +50,7 @@ example3 =
   (set! f (lambda (a b) (if a b 9)))
   (f False x)
 )
-"""
+""" |> String.trim
 
 
 fibProgram : String
@@ -61,17 +61,27 @@ fibProgram =
         1
         (if (= n 2)
           1
-          (fib 2)
+          (+ (fib (- n 1)) (fib (- n 2)))
   )))
 (fib 3)
 )
 
-"""
+""" |> String.trim
+
+
+appProgram : String
+appProgram =
+    """
+  (begin
+  (define (f x) (+ 1 -99))
+  (+ 3 ( f 1) )
+)
+""" |> String.trim
 
 
 choices : List ( String, String )
 choices =
-    [ ( "A", example2 ), ( "B", example3 ), ( "fib", fibProgram ) ]
+    [ ( "A", example2 ), ( "B", example3 ), ( "D", appProgram ), ( "fib", fibProgram ) ]
 
 
 update : Action -> Model -> ( Model, Cmd msg )

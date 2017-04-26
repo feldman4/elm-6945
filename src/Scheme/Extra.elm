@@ -11,25 +11,7 @@ import Set
 
 main : Html.Html msg
 main =
-    let
-        fullEval =
-            evalThrough envEmpty program2
-
-        noBegin x =
-            case x of
-                Symbol "begin" ->
-                    False
-
-                _ ->
-                    True
-
-        trees =
-            fullEval
-                |> Tuple.first
-                |> List.reverse
-                |> List.map (\( env, expr ) -> viewTree drawNodeData (Symbol ".") (expr |> filterTree noBegin))
-    in
-        div [] trees
+    text ""
 
 
 drawNodeData : Data -> Svg.Svg msg
@@ -51,6 +33,9 @@ drawNodeData data =
 
                 Procedure p ->
                     "p"
+
+                Primitive p ->
+                    "prim."
 
                 Undefined ->
                     "fuck you"
@@ -169,145 +154,155 @@ evalAndSubstitute partialExpr partial =
 
 evalOnce : Environment -> Expression -> Partial ( Environment, Expression ) ( Environment, Data )
 evalOnce environment expression =
-    case expression of
-        Leaf (Symbol s) ->
-            let
-                data =
-                    envGet environment s |> Maybe.withDefault Undefined
-            in
+    let
+        _ =
+            Debug.log "expr" expression
+
+        _ =
+            Debug.log "env" environment
+    in
+        case expression of
+            Leaf (Symbol s) ->
+                let
+                    data =
+                        envGet environment s |> Maybe.withDefault Undefined
+                in
+                    finalize environment (Leaf data)
+
+            Leaf x ->
+                Done ( environment, x )
+
+            Branch ((Leaf (Symbol "lambda")) :: (Branch parameters) :: body) ->
+                -- MIT Scheme requires lambda parameters to be valid identifiers
+                -- (aka Symbol?)
+                case makeLambda parameters body of
+                    Just procedure ->
+                        Done ( environment, Procedure procedure )
+
+                    Nothing ->
+                        Done ( environment, Undefined )
+
+            Branch ((Leaf (Symbol "set!")) :: (Leaf (Symbol name)) :: value :: []) ->
+                -- TODO: continuations
+                Done ( evalAssignment name value environment, Undefined )
+
+            Branch ((Leaf (Symbol "define")) :: ((Branch ((Leaf (Symbol name)) :: parameters)) :: body)) ->
+                let
+                    substitution =
+                        Branch
+                            [ Leaf (Symbol "set!")
+                            , Leaf (Symbol name)
+                            , Branch (Leaf (Symbol "lambda") :: Branch parameters :: body)
+                            ]
+                in
+                    evalOnce environment substitution
+
+            Branch ((Leaf (Symbol "begin")) :: []) ->
+                Done ( environment, Undefined )
+
+            Branch ((Leaf (Symbol "begin")) :: (Leaf data) :: []) ->
                 finalize environment (Leaf data)
 
-        Leaf x ->
-            Done ( environment, x )
+            Branch ((Leaf (Symbol "begin")) :: expr :: rest) ->
+                case evalOnce environment expr of
+                    -- predicate not fully simplified
+                    Continue ( subEnv, subExpr ) continuation ->
+                        let
+                            partialExpr a =
+                                Branch ((Leaf (Symbol "begin")) :: a :: rest)
+                        in
+                            Continue ( subEnv, partialExpr subExpr ) (\() -> continuation () |> evalAndSubstitute partialExpr)
 
-        Branch ((Leaf (Symbol "lambda")) :: (Branch parameters) :: body) ->
-            -- MIT Scheme requires lambda parameters to be valid identifiers
-            -- (aka Symbol?)
-            case makeLambda parameters body of
-                Just procedure ->
-                    Done ( environment, Procedure procedure )
+                    -- done evaluating, but we make it look like a begin statement
+                    -- with a Leaf body so it goes around one more time
+                    Done ( subEnv, data ) ->
+                        let
+                            partialExpr =
+                                case rest of
+                                    [] ->
+                                        Branch ((Leaf (Symbol "begin")) :: (Leaf data) :: [])
 
-                Nothing ->
-                    Done ( environment, Undefined )
+                                    _ ->
+                                        Branch ((Leaf (Symbol "begin")) :: rest)
+                        in
+                            finalize subEnv partialExpr
 
-        Branch ((Leaf (Symbol "set!")) :: (Leaf (Symbol name)) :: value :: []) ->
-            -- TODO: continuations
-            Done ( evalAssignment name value environment, Undefined )
+            Branch ((Leaf (Symbol "if")) :: predicate :: consequent :: alternative :: []) ->
+                case predicate of
+                    -- predicate fully simplified, move on
+                    Leaf x ->
+                        if truthy x then
+                            evalOnce environment consequent
+                        else
+                            evalOnce environment alternative
 
-        Branch ((Leaf (Symbol "define")) :: ((Branch ((Leaf (Symbol name)) :: parameters)) :: body)) ->
-            let
-                substitution =
-                    Branch
-                        [ Leaf (Symbol "set!")
-                        , Leaf (Symbol name)
-                        , Branch (Leaf (Symbol "lambda") :: Branch parameters :: body)
-                        ]
-            in
-                evalOnce environment substitution
+                    Branch _ ->
+                        case evalOnce environment predicate of
+                            -- predicate not fully simplified
+                            Continue ( subEnv, subExpr ) continuation ->
+                                let
+                                    partialExpr pred =
+                                        Branch ((Leaf (Symbol "if")) :: pred :: consequent :: alternative :: [])
+                                in
+                                    Continue ( subEnv, partialExpr subExpr ) (\() -> continuation () |> evalAndSubstitute partialExpr)
 
-        Branch ((Leaf (Symbol "begin")) :: []) ->
-            Done ( environment, Undefined )
+                            -- done evaluating, but we make it look like an if statement
+                            -- with a Leaf predicate so it goes around one more time
+                            Done ( subEnv, data ) ->
+                                let
+                                    partialExpr =
+                                        Branch ((Leaf (Symbol "if")) :: (Leaf data) :: consequent :: alternative :: [])
+                                in
+                                    finalize subEnv partialExpr
 
-        Branch ((Leaf (Symbol "begin")) :: (Leaf data) :: []) ->
-            finalize environment (Leaf data)
+            -- Branch ((Leaf (Symbol "+")) :: args) ->
+            --     let
+            --         doIt expr =
+            --             eval environment expr |> Tuple.first |> Maybe.withDefault Undefined
+            --
+            --         args2 =
+            --             List.map doIt args |> List.map Leaf
+            --     in
+            --         binOp environment expression (+) "+" 0 args2
+            --
+            -- Branch ((Leaf (Symbol "-")) :: args) ->
+            --     let
+            --         doIt expr =
+            --             eval environment expr |> Tuple.first |> Maybe.withDefault Undefined
+            --
+            --         args2 =
+            --             List.map doIt args |> List.map Leaf
+            --     in
+            --         binOpSub environment expression (-) "-" 0 args2
+            --
+            -- Branch ((Leaf (Symbol "*")) :: args) ->
+            --     binOp environment expression (*) "*" 0 args
+            --
+            -- Branch ((Leaf (Symbol "/")) :: args) ->
+            --     binOp environment expression (/) "/" 0 args
+            --
+            -- Branch ((Leaf (Symbol "=")) :: args) ->
+            --     let
+            --         equality xs =
+            --             xs |> List.map toString |> (\xs -> Set.size (Set.fromList xs) <= 1)
+            --     in
+            --         equalOp environment expression equality "=" True args
+            Branch (operator :: arguments) ->
+                -- "pre-eval" the operator and arguments (could involve set!)
+                -- returned Procedure contains
+                case eval environment expression of
+                    ( Just data, env2 ) ->
+                        finalize env2 (Leaf data)
 
-        Branch ((Leaf (Symbol "begin")) :: expr :: rest) ->
-            case evalOnce environment expr of
-                -- predicate not fully simplified
-                Continue ( subEnv, subExpr ) continuation ->
-                    let
-                        partialExpr a =
-                            Branch ((Leaf (Symbol "begin")) :: a :: rest)
-                    in
-                        Continue ( subEnv, partialExpr subExpr ) (\() -> continuation () |> evalAndSubstitute partialExpr)
+                    _ ->
+                        let
+                            _ =
+                                ( operator, arguments ) |> Debug.log "apply failed"
+                        in
+                            Done ( environment, Undefined )
 
-                -- done evaluating, but we make it look like a begin statement
-                -- with a Leaf body so it goes around one more time
-                Done ( subEnv, data ) ->
-                    let
-                        partialExpr =
-                            case rest of
-                                [] ->
-                                    Branch ((Leaf (Symbol "begin")) :: (Leaf data) :: [])
-
-                                _ ->
-                                    Branch ((Leaf (Symbol "begin")) :: rest)
-                    in
-                        finalize subEnv partialExpr
-
-        Branch ((Leaf (Symbol "if")) :: predicate :: consequent :: alternative :: []) ->
-            case predicate of
-                -- predicate fully simplified, move on
-                Leaf x ->
-                    if truthy x then
-                        evalOnce environment consequent
-                    else
-                        evalOnce environment alternative
-
-                Branch _ ->
-                    case evalOnce environment predicate of
-                        -- predicate not fully simplified
-                        Continue ( subEnv, subExpr ) continuation ->
-                            let
-                                partialExpr pred =
-                                    Branch ((Leaf (Symbol "if")) :: pred :: consequent :: alternative :: [])
-                            in
-                                Continue ( subEnv, partialExpr subExpr ) (\() -> continuation () |> evalAndSubstitute partialExpr)
-
-                        -- done evaluating, but we make it look like an if statement
-                        -- with a Leaf predicate so it goes around one more time
-                        Done ( subEnv, data ) ->
-                            let
-                                partialExpr =
-                                    Branch ((Leaf (Symbol "if")) :: (Leaf data) :: consequent :: alternative :: [])
-                            in
-                                finalize subEnv partialExpr
-
-        Branch ((Leaf (Symbol "+")) :: args) ->
-            let
-                doIt expr =
-                    eval environment expr |> Tuple.first |> Maybe.withDefault Undefined
-
-                args2 =
-                    List.map doIt args |> List.map Leaf
-            in
-                binOp environment expression (+) "+" 0 args2
-
-        Branch ((Leaf (Symbol "-")) :: args) ->
-            let
-                doIt expr =
-                    eval environment expr |> Tuple.first |> Maybe.withDefault Undefined
-
-                args2 =
-                    List.map doIt args |> List.map Leaf
-            in
-                binOpSub environment expression (-) "-" 0 args2
-
-        Branch ((Leaf (Symbol "*")) :: args) ->
-            binOp environment expression (*) "*" 0 args
-
-        Branch ((Leaf (Symbol "/")) :: args) ->
-            binOp environment expression (/) "/" 0 args
-
-        Branch ((Leaf (Symbol "=")) :: args) ->
-            let
-                equality xs =
-                    xs |> List.map toString |> (\xs -> Set.size (Set.fromList xs) <= 1)
-            in
-                equalOp environment expression equality "=" True args
-
-        Branch (operator :: arguments) ->
-            -- "pre-eval" the operator and arguments (could involve set!)
-            -- returned Procedure contains
-            case evalProcedure operator arguments environment of
-                Just ( procedure, argumentData, env2 ) ->
-                    apply procedure argumentData |> Debug.log "applyResult" |> evalOnce env2
-
-                _ ->
-                    Done ( environment, Undefined )
-
-        _ ->
-            Done ( environment, Undefined )
+            _ ->
+                Done ( environment, Undefined )
 
 
 equalOp :
@@ -412,7 +407,7 @@ binOp environment expression op opName zero args =
         total =
             args |> List.map getNum |> Maybe.Extra.combine |> Maybe.map (List.foldl op zero)
     in
-        if List.any bad args |> Debug.log "badness" then
+        if args |> Debug.log "args" |> List.any bad |> Debug.log "badness" then
             Done ( environment, Undefined )
         else
             case List.partition aNumber args |> Debug.log "partitioned" of

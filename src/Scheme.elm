@@ -58,11 +58,28 @@ eval environment expression =
         Leaf (Number x) ->
             ( Just (Number x), environment )
 
+        Leaf (Primitive l p) ->
+            ( Just (Primitive l p), environment )
+
+        Leaf (Procedure p) ->
+            -- I guess?
+            ( Just (Procedure p), environment )
+
         Leaf (Symbol s) ->
             ( envGet environment s, environment )
 
-        Leaf (Primitive p) ->
-            ( Just (Primitive p), environment )
+        Branch ((Leaf (Symbol "lambda")) :: (Branch parameters) :: body) ->
+            -- MIT Scheme requires lambda parameters to be valid identifiers
+            -- (aka Symbol?)
+            case makeLambda parameters body of
+                Just procedure ->
+                    ( Just (Procedure procedure), environment )
+
+                Nothing ->
+                    ( Nothing, environment )
+
+        Branch ((Leaf (Symbol "set!")) :: (Leaf (Symbol name)) :: value :: []) ->
+            ( Nothing, evalAssignment name value environment )
 
         Branch ((Leaf (Symbol "define")) :: ((Branch ((Leaf (Symbol name)) :: parameters)) :: body)) ->
             let
@@ -76,30 +93,8 @@ eval environment expression =
                     Nothing ->
                         ( Nothing, environment )
 
-        Branch ((Leaf (Symbol "lambda")) :: (Branch parameters) :: body) ->
-            -- MIT Scheme requires lambda parameters to be valid identifiers
-            -- (aka Symbol?)
-            case makeLambda parameters body of
-                Just procedure ->
-                    ( Just (Procedure procedure), environment )
-
-                Nothing ->
-                    ( Nothing, environment )
-
         Branch ((Leaf (Symbol "begin")) :: exprs) ->
             evalBegin exprs environment
-
-        Branch ((Leaf (Symbol "debug")) :: expr :: []) ->
-            let
-                ( value, env2 ) =
-                    eval environment expr
-
-                _ =
-                    expr
-                        |> Debug.log "debug expression"
-                        |> (\_ -> Debug.log "debug value" value)
-            in
-                ( value, env2 )
 
         Branch ((Leaf (Symbol "if")) :: predicate :: consequent :: alternative :: []) ->
             case eval environment predicate of
@@ -113,8 +108,17 @@ eval environment expression =
                 ( _, env2 ) ->
                     ( Nothing, environment )
 
-        Branch ((Leaf (Symbol "set!")) :: (Leaf (Symbol name)) :: value :: []) ->
-            ( Nothing, evalAssignment name value environment )
+        Branch ((Leaf (Symbol "debug")) :: expr :: []) ->
+            let
+                ( value, env2 ) =
+                    eval environment expr
+
+                _ =
+                    expr
+                        |> Debug.log "debug expression"
+                        |> (\_ -> Debug.log "debug value" value)
+            in
+                ( value, env2 )
 
         Branch (operator :: arguments) ->
             evalProcedure environment operator arguments
@@ -175,14 +179,19 @@ evalProcedure environment operator arguments =
                     Nothing ->
                         ( Nothing, environment )
 
-            ( Just (Primitive p), env2 ) ->
-                case evalArgs env2 arguments of
-                    Just ( argumentData, env3 ) ->
-                        p argumentData
-                            |> (\x -> ( x, env3 ))
+            ( Just (Primitive label p), env2 ) ->
+                let
+                    _ =
+                        label |> Debug.log "found primitive"
+                in
+                    case evalArgs env2 arguments of
+                        Just ( argumentData, env3 ) ->
+                            p argumentData
+                                |> (\x -> ( x, env3 ))
 
-                    Nothing ->
-                        ( Nothing, environment )
+                        Nothing ->
+                            -- maybe this should be env2?
+                            ( Nothing, environment )
 
             _ ->
                 ( Nothing, environment )
@@ -266,6 +275,12 @@ primitiveProcedure name =
         "*" ->
             Just (addlikeOp (*) 1)
 
+        "-" ->
+            Just (sublikeOp (-) 0)
+
+        "/" ->
+            Just (sublikeOp (/) 1)
+
         "=" ->
             Just (Just << listEqual)
 
@@ -292,8 +307,8 @@ equal a b =
         ( Boolean x, Boolean y ) ->
             x == y
 
-        ( Primitive x, Primitive y ) ->
-            False
+        ( Primitive label1 x, Primitive label2 y ) ->
+            label1 == label2
 
         ( Symbol x, Symbol y ) ->
             x == y
@@ -320,6 +335,25 @@ addlikeOp op zero data =
             Nothing
 
 
+sublikeOp : (Float -> Float -> Float) -> Float -> List Data -> Maybe Data
+sublikeOp op single data =
+    case data of
+        [] ->
+            Just Undefined
+
+        (Number x) :: [] ->
+            Just (Number (op single x))
+
+        (Number x) :: (Number y) :: [] ->
+            Just (Number (op x y))
+
+        (Number x) :: (Number y) :: xs ->
+            sublikeOp op single (Number (op x y) :: xs)
+
+        _ ->
+            Nothing
+
+
 
 -- TYPES
 
@@ -337,7 +371,7 @@ type Data
     | Boolean Bool
     | Procedure Procedure
     | Symbol Symbol
-    | Primitive Primitive
+    | Primitive String Primitive
     | Undefined
 
 
@@ -405,7 +439,7 @@ coerce string =
             Just (Symbol s)
 
         coercePrimitive s =
-            primitiveProcedure s |> Maybe.map Primitive
+            primitiveProcedure s |> Maybe.map (Primitive s)
 
         specialForms =
             [ coerceSymbol "if"
@@ -637,7 +671,7 @@ maybeOr fs a =
 main : Program Never String Action
 main =
     Html.program
-        { init = example3 ! []
+        { init = example4 ! []
         , update = update
         , view = view
         , subscriptions = (\_ -> Sub.batch [])
@@ -673,6 +707,20 @@ example3 =
   (f False x)
 )
 """
+
+
+example4 : String
+example4 =
+    """(begin
+  (define (fib n)
+    (if (= n 1 )
+        1
+        (if (= n 2)
+          1
+          (fib (- n 1))
+  )))
+(fib 3)
+)""" |> String.trim
 
 
 update : Action -> Model -> ( Model, Cmd msg )

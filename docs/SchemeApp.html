@@ -15757,11 +15757,6 @@ var _user$project$Scheme_App$view = function (input) {
 						_elm_lang$core$Basics_ops['++'],
 						'( ',
 						A2(_elm_lang$core$Basics_ops['++'], input, ' )'))))));
-	var doneExpressions = A2(
-		_elm_lang$core$List$map,
-		_user$project$Scheme$eval(_user$project$Scheme$envEmpty),
-		expressions);
-	var blah = A2(_elm_lang$core$List$map, viewOutput, doneExpressions);
 	return A2(
 		_elm_lang$html$Html$div,
 		{ctor: '[]'},
@@ -15781,15 +15776,15 @@ var _user$project$Scheme_App$view = function (input) {
 							_1: {
 								ctor: '::',
 								_0: _elm_lang$html$Html_Attributes$cols(80),
-								_1: {ctor: '[]'}
+								_1: {
+									ctor: '::',
+									_0: _elm_lang$html$Html_Attributes$value(input),
+									_1: {ctor: '[]'}
+								}
 							}
 						}
 					},
-					{
-						ctor: '::',
-						_0: _elm_lang$html$Html$text(input),
-						_1: {ctor: '[]'}
-					}),
+					{ctor: '[]'}),
 				_1: {
 					ctor: '::',
 					_0: A2(

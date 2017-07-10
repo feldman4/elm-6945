@@ -146,13 +146,6 @@ view input =
                 |> List.filterMap (traverseTree coerce)
                 |> Debug.log "program"
 
-        doneExpressions =
-            expressions |> List.map (eval envEmpty)
-
-        blah =
-            doneExpressions
-                |> List.map viewOutput
-
         viewOutput ( value, environment ) =
             div []
                 [ div [] [ value |> toString |> (++) "value: " |> text ]
@@ -161,6 +154,6 @@ view input =
     in
         div []
             [ viewChoices choices
-            , textarea [ onInput Input, rows 10, cols 80 ] [ input |> text ]
+            , textarea [ onInput Input, rows 10, cols 80, Html.Attributes.value input ] []
             , div [] (List.map extraView expressions)
             ]
